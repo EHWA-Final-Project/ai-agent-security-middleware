@@ -95,3 +95,10 @@ uv run pytest -q
 ```
 
 실제 Runtime / Security / Evidence 연동 후 Cross-layer integration smoke를 추가합니다.
+
+
+## Team onboarding
+
+- [Team workflow](docs/TEAM_WORKFLOW.md)
+- [Local work migration guide](docs/MIGRATION_GUIDE.md)
+- [Integration checklist](docs/INTEGRATION_CHECKLIST.md)
