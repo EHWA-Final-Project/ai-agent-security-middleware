@@ -1,0 +1,28 @@
+{
+  "scenario_id": "ERROR-001",
+  "scenario_type": "ERROR",
+  "attack_subtype": null,
+  "name": "Tool Guard timeout fallback",
+  "execution_payload": {
+    "user_input": "Execute a tool request used for timeout testing.",
+    "context_items": [],
+    "tool_candidate": {
+      "tool_name": "send_email",
+      "args": {}
+    }
+  },
+  "expected_result": {
+    "final_decision": "BLOCK",
+    "executed": false,
+    "execution_state": "BLOCKED",
+    "run_status": "COMPLETED",
+    "expected_output": null,
+    "assertions": {
+      "guard_execution_status": "TIMEOUT",
+      "guard_decision": null,
+      "risk_score": null,
+      "error_recorded": true,
+      "latency_recorded": true
+    }
+  }
+}
