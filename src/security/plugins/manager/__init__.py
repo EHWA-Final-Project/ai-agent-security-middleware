@@ -1,0 +1,3 @@
+from security.plugins.manager.plugin_manager import PluginManager
+
+__all__ = ["PluginManager"]
