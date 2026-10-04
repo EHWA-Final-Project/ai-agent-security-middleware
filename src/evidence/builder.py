@@ -17,6 +17,7 @@ class EvidenceBuilder:
     EVENT_SECURITY_RESULT = "SECURITY_RESULT"
     EVENT_SECURITY_DECISION = "SECURITY_DECISION"
     EVENT_EXECUTION_RESULT = "EXECUTION_RESULT"
+    EVENT_RUN_STATUS = "RUN_STATUS"
 
     @staticmethod
     def _normalize_stage(value: Any) -> Stage | None:
@@ -116,3 +117,14 @@ class EvidenceBuilder:
             scenario_id=scenario_id,
             stage=stage,
         )
+    def from_run_status(
+    self,
+    source: BaseModel,
+    *,
+    scenario_id: str | None = None,
+    ) -> SecurityEvent:
+       return self.build(
+        source=source,
+        event_type=self.EVENT_RUN_STATUS,
+        scenario_id=scenario_id,
+       )    
