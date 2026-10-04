@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """간단 사용 예제 — Runtime이 SecurityOrchestrator.evaluate()를 호출하는 방식과,
 ALLOW / WARN / BLOCK에 따른 Runtime 출력 사용 규칙을 보여줍니다.
 
