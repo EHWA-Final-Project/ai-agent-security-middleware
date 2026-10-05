@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Baseline Integration Smoke — runnable demo script (Fatin's scope).
 
 Run with: uv run python scripts/baseline_smoke.py
