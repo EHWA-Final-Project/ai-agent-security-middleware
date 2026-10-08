@@ -5,10 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from runtime.dto import RuntimeRequest
 
 from .container import PlatformContainer
+from .demo import DEMO_HTML
 
 
 def create_app(
@@ -27,6 +29,14 @@ def create_app(
 
     services = container or PlatformContainer(db_path=db_path)
     app.state.container = services
+
+    @app.get("/", include_in_schema=False)
+    def root() -> RedirectResponse:
+        return RedirectResponse(url="/demo")
+
+    @app.get("/demo", response_class=HTMLResponse, include_in_schema=False)
+    def demo() -> HTMLResponse:
+        return HTMLResponse(DEMO_HTML)
 
     @app.get("/health", tags=["platform"])
     def health() -> dict:
