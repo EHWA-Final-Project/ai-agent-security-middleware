@@ -35,6 +35,14 @@ not written into the frozen lockfile in this integration PR.
 
 ## 2. Start the demo API
 
+Recommended one-command launcher:
+
+```bash
+bash scripts/run_platform_demo.sh
+```
+
+Equivalent manual command:
+
 ```bash
 PYTHONPATH=src:shared uv run uvicorn platform_api.app:app --reload
 ```
