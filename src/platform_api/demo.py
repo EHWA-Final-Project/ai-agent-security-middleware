@@ -150,7 +150,7 @@ DEMO_HTML = r"""<!doctype html>
     }
     .flow {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 12px;
       align-items: stretch;
     }
@@ -179,6 +179,8 @@ DEMO_HTML = r"""<!doctype html>
     .stage.allow .stage-decision { color: var(--allow); }
     .stage.warn { background: var(--warn-bg); border-color: #f0d980; }
     .stage.warn .stage-decision { color: var(--warn); }
+    .stage.mode { background: var(--accent-bg); border-color: #b8c4f5; }
+    .stage.mode .stage-decision { color: var(--accent); }
     .stage.block { background: var(--block-bg); border-color: #f2b8b5; }
     .stage.block .stage-decision { color: var(--block); }
     .stage-meta { color: var(--muted); font-size: 12px; line-height: 1.55; }
@@ -423,17 +425,57 @@ DEMO_HTML = r"""<!doctype html>
         .map(event => event.payload);
 
       const flow = document.getElementById("guardFlow");
-      flow.innerHTML = guardResults.map(item => {
+      const flowItems = [];
+
+      for (const item of guardResults) {
         const decision = item.decision || item.execution_status || "-";
-        const riskText = item.risk_score == null ? "risk: -" : "risk: " + Number(item.risk_score).toFixed(3);
-        const latency = item.latency_ms == null ? "" : " · " + Number(item.latency_ms).toFixed(2) + " ms";
-        return `
-          <div class="stage ${decisionClass(decision)}">
-            <div class="stage-name">${esc(prettyGuard(item.guard_name))}</div>
-            <div class="stage-decision">${esc(decision)}</div>
-            <div class="stage-meta">${esc(riskText + latency)}</div>
-          </div>`;
-      }).join("");
+        const riskText = item.risk_score == null
+          ? "risk: -"
+          : "risk: " + Number(item.risk_score).toFixed(3);
+        const latency = item.latency_ms == null
+          ? ""
+          : " · " + Number(item.latency_ms).toFixed(2) + " ms";
+
+        flowItems.push({
+          name: prettyGuard(item.guard_name),
+          decision,
+          meta: riskText + latency,
+          cls: decisionClass(decision)
+        });
+
+        if (
+          item.guard_name === "context_guard" &&
+          String(decision).toUpperCase() === "WARN"
+        ) {
+          flowItems.push({
+            name: "SECURITY CONTEXT",
+            decision: "STRICT",
+            meta: "STANDARD → STRICT · next Guard 강화",
+            cls: "mode"
+          });
+        }
+      }
+
+      const finalClass = decisionClass(finalDecision);
+      const toolName = run.execution?.tool_name || "-";
+      const finalMeta = executed
+        ? "Enforcement · " + toolName + " executed"
+        : "Enforcement · " + toolName + " NOT EXECUTED";
+
+      flowItems.push({
+        name: "FINAL ENFORCEMENT",
+        decision: finalDecision,
+        meta: finalMeta,
+        cls: finalClass
+      });
+
+      flow.innerHTML = flowItems.map(item => `
+        <div class="stage ${item.cls}">
+          <div class="stage-name">${esc(item.name)}</div>
+          <div class="stage-decision">${esc(item.decision)}</div>
+          <div class="stage-meta">${esc(item.meta)}</div>
+        </div>`
+      ).join("");
 
       const rules = run.decision?.triggered_rules || [];
       document.getElementById("rules").innerHTML = rules.length
