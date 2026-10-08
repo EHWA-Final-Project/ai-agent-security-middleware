@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "shared"))
 
-import uvicorn  # noqa: E402
+import uvicorn
 
 
 if __name__ == "__main__":
