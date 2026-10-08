@@ -141,3 +141,24 @@ def test_metrics_is_explicitly_marked_as_p0_placeholder(tmp_path):
     body = response.json()
     assert body["aggregation_status"] == "P0_PLACEHOLDER"
     assert body["metrics"]["policy_version"] == "demo-cross-layer-v1"
+
+
+def test_professor_demo_page_is_available(tmp_path):
+    client = _client(tmp_path)
+
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    assert "AI Agent Security Middleware" in response.text
+    assert "BENIGN-001" in response.text
+    assert "ATTACK-001" in response.text
+    assert "Guard Flow" in response.text
+
+
+def test_root_redirects_to_demo(tmp_path):
+    client = _client(tmp_path)
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code in {302, 307}
+    assert response.headers["location"] == "/demo"
