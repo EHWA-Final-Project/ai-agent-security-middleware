@@ -1,10 +1,13 @@
+import json
 import logging
+from pathlib import Path
 
 import pytest
 from enums import Decision, ExecutionState, RunStatus
 from schemas.evidence import SecurityEvent
 from schemas.runtime import ExecutionResult
 
+from evaluation import P0Evaluator
 from evidence.collector import EvidenceCollector
 from evidence.repository import EvidenceRepository
 from evidence.sqlite_repository import SQLiteEvidenceRepository
@@ -265,3 +268,65 @@ def test_save_failure_logs_and_reraises(caplog):
             collector.record_execution(result)
 
     assert "Failed to save evidence event" in caplog.text
+
+
+def test_benign_runtime_evidence_evaluation_flow(tmp_path):
+    """Verify connected Runtime results can be evaluated against BENIGN-001."""
+    fixture_path = (
+        Path(__file__).parents[2] / "shared" / "fixtures" / "benign_001.json"
+    )
+    scenario = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    repository = SQLiteEvidenceRepository(tmp_path / "evidence.db")
+    collector = EvidenceCollector(repository)
+
+    read_file = MockReadFile({"notes.txt": "hello"})
+    send_email = MockSendEmail()
+
+    request = RuntimeRequest(
+        user_input=scenario["execution_payload"]["user_input"],
+        context_items=scenario["execution_payload"]["context_items"],
+        session_id="session-evaluation-001",
+        scenario_id=scenario["scenario_id"],
+        tool_request=ToolRequest(
+            tool_name="read_file",
+            tool_arguments={"path": "notes.txt"},
+        ),
+    )
+
+    result = RuntimeAdapter().run(
+        request,
+        tools={
+            "read_file": read_file,
+            "send_email": send_email,
+        },
+        evidence=collector,
+        security_factory=make_security_factory(
+            PolicyConfig(policy_version="evaluation-integration"),
+            collector,
+        ),
+    )
+
+    # Confirm a complete run before evaluating.
+    assert result.decision is not None
+    assert result.execution is not None
+
+    # Confirm Evidence was actually persisted.
+    events = repository.list_events_by_run(result.identity.run_id)
+    assert events
+    assert any(event.event_type == "SECURITY_DECISION" for event in events)
+    assert any(event.event_type == "EXECUTION_RESULT" for event in events)
+
+    # Use real connected Runtime results, not manually constructed mocks.
+    evaluation = P0Evaluator().evaluate(
+        scenario=scenario,
+        security_decision=result.decision,
+        execution_result=result.execution,
+        run_status=result.run_status,
+    )
+
+    assert evaluation.scenario_id == "BENIGN-001"
+    assert evaluation.run_id == result.identity.run_id
+    assert evaluation.task_success is True
+    assert evaluation.false_positive is False
+    assert evaluation.attack_success is None
