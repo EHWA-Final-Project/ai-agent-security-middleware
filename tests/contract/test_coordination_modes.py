@@ -1,9 +1,4 @@
-"""Independent vs linked coordination.
-
-Same Guards, same thresholds — the only difference is whether earlier
-Guards' risk propagates to later ones. "tool ran" below means Enforcement
-received an ALLOW decision (the tool was actually executed).
-"""
+"""Independent vs linked coordination."""
 
 import time
 

@@ -1,11 +1,4 @@
-"""Guard and Security Core latency recording.
-
-SecurityResult.latency_ms is what a Guard reports about itself. The
-Orchestrator's own breakdown (``last_timing``) is what the system actually
-pays: Guard calls including thread hand-off, time inside Enforcement (the tool
-itself) and time spent writing evidence are separated from the Guard +
-Orchestrator work.
-"""
+"""Guard and Security Core latency recording."""
 
 import time
 

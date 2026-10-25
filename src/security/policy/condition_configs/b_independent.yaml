@@ -4,7 +4,7 @@
 # thresholds as C; only coordination_mode differs.
 #
 # Thresholds and weights are identical in A/B/C. They are P0 smoke values, not
-# tuned values. Changing any value here MUST bump policy_version.
+# tuned values. 
 
 policy_version: "v0.1.0-cond-b-independent"
 

@@ -12,9 +12,4 @@ guard_weights:
   context_guard: 1.0
   tool_guard: 1.0
   output_guard: 1.0
-
-# linked (default): risk accumulates across Guards and an earlier WARN
-#   raises the inspection mode for later stages.
-# independent: each Guard judged alone against the thresholds above.
-# A different mode is a different policy -> give it its own policy_version.
 coordination_mode: linked

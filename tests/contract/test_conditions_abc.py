@@ -1,8 +1,4 @@
-"""A / B / C run end to end from their config files.
-
-Uses the baseline thresholds in the condition files (no overrides).
-"tool ran" means Enforcement received an ALLOW decision.
-"""
+"""A / B / C run end to end from their config files."""
 
 import pytest
 from enums import Decision, ExecutionState

@@ -1,36 +1,4 @@
-"""Security Orchestrator.
-
-Owns SecurityContext for a run and runs the full Input -> Context ->
-(Tool) -> Output stage sequence internally within a single evaluate() call.
-Callers invoke evaluate() once per turn; stage-to-stage transitions and
-WARN/STRICT escalation happen inside this class.
-
-Behavior notes:
-  - TOOL stage (and therefore EnforcementInterface.enforce()) only runs
-    when observation.tool_candidate is not None. A pure Input/Context-only
-    turn never touches Enforcement.
-  - enforce() is called at most once per run, at the Tool Decision point,
-    covering both ALLOW (Tool stage cleared) and BLOCK (produced at or
-    before Tool stage). A later BLOCK at Output stage does not re-invoke
-    Enforcement, since tool execution has already completed by then.
-  - WARN handling follows the frozen P0/P1 Decision policy: STANDARD+WARN
-    escalates inspection mode only; STRICT+WARN behaves per stage
-    (Input/Context accumulate and continue, Tool escalates to BLOCK,
-    Output gets one sanitize-and-recheck attempt before BLOCK).
-  - Critical Rule violations and cumulative_risk_score crossing
-    block_threshold trigger an immediate BLOCK, checked after every guard
-    result rather than only at the end of the run.
-  - Orchestrator-internal failures raise OrchestratorInternalError so
-    callers can distinguish an internal bug from a normal decision.
-  - Evidence recording failures do not crash evaluate(); the computed
-    SecurityDecision is still returned, and the failure is exposed via
-    `orchestrator.last_evidence_error`.
-
-Output stage input: the ExecutionResult returned by Enforcement at the Tool
-Decision point is stored on the SecurityContext, so Output Guard inspects the
-real tool output (P0 scope: tool output only, not the eventual final LLM
-response).
-"""
+"""Security Orchestrator."""
 
 from __future__ import annotations
 

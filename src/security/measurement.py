@@ -1,12 +1,4 @@
-"""Latency summary helpers (prototype).
-
-Percentiles use the nearest-rank method so every reported value is a latency
-that was actually observed. With few repetitions p95 equals the max, so always
-report ``n`` next to a percentile.
-
-Wana's Evaluation Pipeline owns the final metric calculation; this module only
-lets Security Core check that its raw per-run latency records are sufficient.
-"""
+"""Latency summary helpers. """
 
 from __future__ import annotations
 
