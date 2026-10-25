@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -196,3 +197,37 @@ def test_fixture_experiment_full_pipeline():
 
     assert metrics["B"].average_latency_ms == 10.0
     assert metrics["C"].p95_latency_ms == 10.0
+    
+    
+def test_policy_version_mismatch_is_rejected():
+    scenario = load_fixture("benign_001.json")
+    runner = ExperimentRunner(mock_execute_trial)
+
+    with pytest.raises(ValueError, match="policy_version"):
+        runner.run(
+            scenario=scenario,
+            modes=["B"],
+            repeats=1,
+            seed=42,
+            policy_version="wrong-version",
+        )
+
+
+def test_incomplete_trial_is_rejected():
+    scenario = load_fixture("benign_001.json")
+
+    def incomplete_execute(request: TrialRequest) -> TrialOutput:
+        output = mock_execute_trial(request)
+        return replace(output, run_status=RunStatus.FAILED)
+
+    runner = ExperimentRunner(incomplete_execute)
+
+    with pytest.raises(ValueError, match="did not complete"):
+        runner.run(
+            scenario=scenario,
+            modes=["B"],
+            repeats=1,
+            seed=42,
+            policy_version="fixture-v1",
+        )
+

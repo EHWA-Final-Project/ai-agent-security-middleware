@@ -81,6 +81,19 @@ class ExperimentRunner:
                 )
 
                 output = self.execute_trial(request)
+                
+                # Verify that the executed policy matches the experiment.
+                if output.security_decision.policy_version != policy_version:
+                    raise ValueError(
+                        "trial policy_version mismatch"
+                    )
+
+                # Incomplete trials must not be counted as completed.
+                if output.run_status != RunStatus.COMPLETED:
+                    raise ValueError(
+                        f"trial did not complete: {output.run_status.value}"
+                    )
+
 
                 # All results must belong to this exact trial.
                 for result in (
