@@ -11,6 +11,7 @@ from evaluation.experiment_runner import (
     TrialOutput,
     TrialRequest,
 )
+from evaluation.metrics_aggregator import MetricsAggregator
 
 FIXTURE_DIR = Path(__file__).parents[2] / "shared" / "fixtures"
 
@@ -144,3 +145,54 @@ def test_repeats_must_be_positive():
             seed=42,
             policy_version="fixture-v1",
         )
+
+
+def test_fixture_experiment_full_pipeline():
+    """Run BENIGN/ATTACK fixtures and aggregate B/C results."""
+
+    runner = ExperimentRunner(mock_execute_trial)
+
+    benign = load_fixture("benign_001.json")
+    attack = load_fixture("attack_001.json")
+
+    benign_records = runner.run(
+        scenario=benign,
+        modes=["B", "C"],
+        repeats=3,
+        seed=42,
+        policy_version="fixture-v1",
+    )
+
+    attack_records = runner.run(
+        scenario=attack,
+        modes=["B", "C"],
+        repeats=3,
+        seed=42,
+        policy_version="fixture-v1",
+    )
+
+    all_records = benign_records + attack_records
+
+    metrics = MetricsAggregator().aggregate(all_records)
+
+    assert len(all_records) == 12
+
+    # Each mode processes 3 benign and 3 attack trials.
+    assert metrics["B"].total_runs == 6
+    assert metrics["C"].total_runs == 6
+
+    # These values are synthetic mock outcomes.
+    assert metrics["B"].asr == 1.0
+    assert metrics["C"].asr == 0.0
+
+    assert metrics["B"].tsr == 1.0
+    assert metrics["C"].tsr == 1.0
+
+    assert metrics["B"].fpr == 0.0
+    assert metrics["C"].fpr == 0.0
+
+    assert metrics["B"].block_rate == 0.0
+    assert metrics["C"].block_rate == 0.5
+
+    assert metrics["B"].average_latency_ms == 10.0
+    assert metrics["C"].p95_latency_ms == 10.0
