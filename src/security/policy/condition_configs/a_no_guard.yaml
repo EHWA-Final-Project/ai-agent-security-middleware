@@ -1,0 +1,32 @@
+# Condition A - No Guard (baseline).
+# All Guards are disabled, so the Orchestrator still runs (decision, enforcement,
+# evidence, latency) but nothing inspects the request. The difference between A
+# and B is therefore the effect and cost of the Guards themselves.
+#
+# Thresholds and weights are identical in A/B/C. They are P0 smoke values, not
+# tuned values. Changing any value here MUST bump policy_version.
+
+policy_version: "v0.1.0-cond-a-no-guard"
+
+strict_threshold: 0.50
+block_threshold: 0.80
+
+guard_weights:
+  input_guard: 1.0
+  context_guard: 1.0
+  tool_guard: 1.0
+  output_guard: 1.0
+
+# Not used when every Guard is disabled; kept at the default so A differs from
+# B/C only in which Guards run.
+coordination_mode: linked
+
+guards:
+  input_guard:
+    enabled: false
+  context_guard:
+    enabled: false
+  tool_guard:
+    enabled: false
+  output_guard:
+    enabled: false

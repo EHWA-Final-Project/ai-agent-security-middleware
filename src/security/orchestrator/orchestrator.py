@@ -4,12 +4,39 @@ Owns SecurityContext for a run and runs the full Input -> Context ->
 (Tool) -> Output stage sequence internally within a single evaluate() call.
 Callers invoke evaluate() once per turn; stage-to-stage transitions and
 WARN/STRICT escalation happen inside this class.
+
+Behavior notes:
+  - TOOL stage (and therefore EnforcementInterface.enforce()) only runs
+    when observation.tool_candidate is not None. A pure Input/Context-only
+    turn never touches Enforcement.
+  - enforce() is called at most once per run, at the Tool Decision point,
+    covering both ALLOW (Tool stage cleared) and BLOCK (produced at or
+    before Tool stage). A later BLOCK at Output stage does not re-invoke
+    Enforcement, since tool execution has already completed by then.
+  - WARN handling follows the frozen P0/P1 Decision policy: STANDARD+WARN
+    escalates inspection mode only; STRICT+WARN behaves per stage
+    (Input/Context accumulate and continue, Tool escalates to BLOCK,
+    Output gets one sanitize-and-recheck attempt before BLOCK).
+  - Critical Rule violations and cumulative_risk_score crossing
+    block_threshold trigger an immediate BLOCK, checked after every guard
+    result rather than only at the end of the run.
+  - Orchestrator-internal failures raise OrchestratorInternalError so
+    callers can distinguish an internal bug from a normal decision.
+  - Evidence recording failures do not crash evaluate(); the computed
+    SecurityDecision is still returned, and the failure is exposed via
+    `orchestrator.last_evidence_error`.
+
+Output stage input: the ExecutionResult returned by Enforcement at the Tool
+Decision point is stored on the SecurityContext, so Output Guard inspects the
+real tool output (P0 scope: tool output only, not the eventual final LLM
+response).
 """
 
 from __future__ import annotations
 
 import concurrent.futures
 import time
+from dataclasses import dataclass, field
 
 from contracts import EnforcementInterface, EvidenceSink
 from enums import Decision, GuardExecutionStatus, InspectionMode, Stage
@@ -24,7 +51,7 @@ from schemas import (
 from security.orchestrator.fallback import apply_guard_fallback, is_guard_failure
 from security.plugins.interface import GuardPlugin
 from security.plugins.manager import PluginManager
-from security.policy.config import PolicyConfig
+from security.policy.config import CoordinationMode, PolicyConfig
 
 _DEFAULT_GUARD_TIMEOUT_SEC = 2.0
 
@@ -54,6 +81,38 @@ class OrchestratorInternalError(Exception):
         self.original = original
 
 
+
+@dataclass
+class EvaluationTiming:
+    """Wall-clock breakdown of the last evaluate() call (milliseconds).
+
+    Not part of any shared contract: Runtime/Evaluation may read it from the
+    Orchestrator the same way they read ``last_evidence_error``.
+
+    evaluate_ms     whole evaluate() call
+    guard_wall_ms   (guard name, wall time) per Guard call, measured here and
+                    including thread hand-off; compare with the Guard's own
+                    SecurityResult.latency_ms
+    enforcement_ms  time inside Enforcement.enforce() (the tool itself runs here)
+    evidence_ms     time spent in evidence_sink.record_result/record_decision
+    security_core_ms  evaluate_ms minus enforcement_ms and evidence_ms, i.e.
+                    Guards + Orchestrator logic only
+    """
+
+    evaluate_ms: float = 0.0
+    enforcement_ms: float = 0.0
+    evidence_ms: float = 0.0
+    guard_wall_ms: list[tuple[str, float]] = field(default_factory=list)
+
+    @property
+    def guard_wall_total_ms(self) -> float:
+        return sum(ms for _, ms in self.guard_wall_ms)
+
+    @property
+    def security_core_ms(self) -> float:
+        return max(self.evaluate_ms - self.enforcement_ms - self.evidence_ms, 0.0)
+
+
 class SecurityOrchestrator:
     def __init__(
         self,
@@ -74,6 +133,8 @@ class SecurityOrchestrator:
         #: decide RunStatus=PARTIAL_FAILURE. Reset at the start of every
         #: evaluate() call.
         self.last_evidence_error: ErrorDetail | None = None
+        #: Timing breakdown of the most recent evaluate() call (see EvaluationTiming).
+        self.last_timing = EvaluationTiming()
         # Reused across every guard call so a timed-out guard's leftover
         # thread never blocks evaluate() — see _run_guard_safely.
         self._guard_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
@@ -84,6 +145,8 @@ class SecurityOrchestrator:
 
     def evaluate(self, observation: RuntimeObservation) -> SecurityDecision:
         self.last_evidence_error = None
+        self.last_timing = EvaluationTiming()
+        start = time.perf_counter()
         try:
             return self._evaluate(observation)
         except OrchestratorInternalError:
@@ -95,6 +158,8 @@ class SecurityOrchestrator:
                 trace_id=observation.trace_id,
                 original=exc,
             ) from exc
+        finally:
+            self.last_timing.evaluate_ms = (time.perf_counter() - start) * 1000
 
     # ------------------------------------------------------------------
     # Core flow
@@ -141,6 +206,9 @@ class SecurityOrchestrator:
 
         # All stages cleared without an early BLOCK (or the only BLOCK was
         # at OUTPUT stage, already handled above via early_decision).
+        if self._independent:
+            return self._finalize_record_only(self._decide_independent(observation, context))
+
         final_risk = self._aggregate_risk(context.previous_results)
         context.cumulative_risk_score = final_risk
         final_decision = self._decide_from_risk(observation, context, final_risk)
@@ -174,7 +242,8 @@ class SecurityOrchestrator:
                     current_mode=context.inspection_mode,
                     policy_version=context.policy_version,
                 )
-                context.inspection_mode = next_mode
+                if not self._independent:
+                    context.inspection_mode = next_mode
                 if fallback_decision is not None:
                     return fallback_decision
                 continue
@@ -194,6 +263,12 @@ class SecurityOrchestrator:
                     reason=f"Guard '{guard.name}' returned BLOCK",
                     rule_ids=result.rule_ids,
                 )
+
+            if self._independent:
+                early_decision = self._judge_independently(guard, result, observation, context)
+                if early_decision is not None:
+                    return early_decision
+                continue
 
             # Cumulative risk is recomputed and checked against
             # block_threshold after EVERY successful guard result,
@@ -218,6 +293,63 @@ class SecurityOrchestrator:
             # ALLOW: nothing special, continue to next guard/stage.
 
         return None
+
+    @property
+    def _independent(self) -> bool:
+        return self.policy_config.coordination_mode == CoordinationMode.INDEPENDENT
+
+    def _judge_independently(
+        self,
+        guard: GuardPlugin,
+        result: SecurityResult,
+        observation: RuntimeObservation,
+        context: SecurityContext,
+    ) -> SecurityDecision | None:
+        """INDEPENDENT mode: this guard's own risk_score is compared to the
+        thresholds on its own. No accumulation across guards, no inspection
+        mode escalation, no sanitize retry. BLOCK returns immediately; a
+        WARN-level score is picked up later by _decide_independent.
+        """
+        risk = result.risk_score or 0.0
+        context.cumulative_risk_score = max(context.cumulative_risk_score, risk)
+        if risk >= self.policy_config.block_threshold:
+            return self._decision_from_context(
+                observation, context, decision=Decision.BLOCK,
+                reason=(
+                    f"independent mode: guard '{guard.name}' risk_score {risk:.2f} "
+                    "exceeded block_threshold"
+                ),
+            )
+        return None
+
+    def _decide_independent(
+        self,
+        observation: RuntimeObservation,
+        context: SecurityContext,
+    ) -> SecurityDecision:
+        """Final decision in INDEPENDENT mode: the worst single-guard level.
+        BLOCK never reaches here (returned early). Nothing accumulates, so
+        cumulative_risk_score holds the highest single-guard risk.
+        """
+        scored = [
+            r for r in context.previous_results
+            if r.execution_status == GuardExecutionStatus.SUCCESS and r.risk_score is not None
+        ]
+        top = max(scored, key=lambda r: r.risk_score, default=None)
+        context.cumulative_risk_score = top.risk_score if top is not None else 0.0
+
+        if top is not None and top.risk_score >= self.policy_config.strict_threshold:
+            return self._decision_from_context(
+                observation, context, decision=Decision.WARN,
+                reason=(
+                    f"independent mode: guard '{top.guard_name}' risk_score "
+                    f"{top.risk_score:.2f} exceeded strict_threshold"
+                ),
+            )
+        return self._decision_from_context(
+            observation, context, decision=Decision.ALLOW,
+            reason="no guard exceeded policy thresholds",
+        )
 
     def _handle_warn(
         self,
@@ -299,6 +431,22 @@ class SecurityOrchestrator:
     # ------------------------------------------------------------------
 
     def _run_guard_safely(
+        self,
+        guard: GuardPlugin,
+        observation: RuntimeObservation,
+        context: SecurityContext,
+        *,
+        method: str = "inspect",
+    ) -> SecurityResult:
+        start = time.perf_counter()
+        try:
+            return self._call_guard(guard, observation, context, method=method)
+        finally:
+            self.last_timing.guard_wall_ms.append(
+                (guard.name, (time.perf_counter() - start) * 1000)
+            )
+
+    def _call_guard(
         self,
         guard: GuardPlugin,
         observation: RuntimeObservation,
@@ -426,10 +574,15 @@ class SecurityOrchestrator:
         return decision
 
     def _safe_enforce(self, decision: SecurityDecision, context: SecurityContext) -> None:
-        execution_result = self.enforcement.enforce(decision)
+        start = time.perf_counter()
+        try:
+            execution_result = self.enforcement.enforce(decision)
+        finally:
+            self.last_timing.enforcement_ms += (time.perf_counter() - start) * 1000
         context.execution_result = execution_result
 
     def _safe_record_result(self, result: SecurityResult) -> None:
+        start = time.perf_counter()
         try:
             self.evidence_sink.record_result(result)
         except Exception as exc:  # noqa: BLE001 — evidence failures must not crash a valid decision
@@ -440,8 +593,11 @@ class SecurityOrchestrator:
                 retryable=True,
                 trace_id=result.trace_id,
             )
+        finally:
+            self.last_timing.evidence_ms += (time.perf_counter() - start) * 1000
 
     def _safe_record_decision(self, decision: SecurityDecision) -> None:
+        start = time.perf_counter()
         try:
             self.evidence_sink.record_decision(decision)
         except Exception as exc:  # noqa: BLE001 — evidence failures must not crash a valid decision
@@ -452,3 +608,5 @@ class SecurityOrchestrator:
                 retryable=True,
                 trace_id=decision.trace_id,
             )
+        finally:
+            self.last_timing.evidence_ms += (time.perf_counter() - start) * 1000

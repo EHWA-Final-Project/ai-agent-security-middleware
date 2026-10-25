@@ -1,0 +1,30 @@
+# Condition B - Independent Guards.
+# Each Guard's own score is judged against the thresholds on its own: no risk
+# accumulation, no STRICT escalation, no sanitize retry. Same Guards and
+# thresholds as C; only coordination_mode differs.
+#
+# Thresholds and weights are identical in A/B/C. They are P0 smoke values, not
+# tuned values. Changing any value here MUST bump policy_version.
+
+policy_version: "v0.1.0-cond-b-independent"
+
+strict_threshold: 0.50
+block_threshold: 0.80
+
+guard_weights:
+  input_guard: 1.0
+  context_guard: 1.0
+  tool_guard: 1.0
+  output_guard: 1.0
+
+coordination_mode: independent
+
+guards:
+  input_guard:
+    enabled: true
+  context_guard:
+    enabled: true
+  tool_guard:
+    enabled: true
+  output_guard:
+    enabled: true
