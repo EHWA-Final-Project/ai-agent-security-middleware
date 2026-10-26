@@ -12,3 +12,4 @@ guard_weights:
   context_guard: 1.0
   tool_guard: 1.0
   output_guard: 1.0
+coordination_mode: linked

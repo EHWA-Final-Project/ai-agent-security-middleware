@@ -1,15 +1,18 @@
-"""Policy Config.
-
-P0 baseline: strict_threshold=0.50, block_threshold=0.80 are initial smoke
-values, not final tuned thresholds.
-"""
+"""Policy Config."""
 
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, Field
+
+
+class CoordinationMode(str, Enum):
+
+    LINKED = "linked"
+    INDEPENDENT = "independent"
 
 
 class PolicyConfig(BaseModel):
@@ -18,6 +21,7 @@ class PolicyConfig(BaseModel):
     block_threshold: float = 0.80
     guard_weights: dict[str, float] = Field(default_factory=dict)
     critical_rule_ids: list[str] = Field(default_factory=list)
+    coordination_mode: CoordinationMode = CoordinationMode.LINKED
 
     def weight_for(self, guard_name: str) -> float:
         """P0: all guard weights default to 1.0 unless overridden in config."""
