@@ -25,13 +25,13 @@ uv run --group demo streamlit run demo/dashboard.py
 
 ## 클릭 순서와 확인 항목
 
-1. `Plugin Execution Trace`에서 `Plugin Architecture`를 설명한다: Runtime → Plugin Manager → 네 Guard Plugin → SecurityContext → SecurityDecision → Enforcement → Evidence.
-2. `🟢 정상 요청 실행`: ALLOW, Tool 호출 1회, 출력 허용을 확인한다. 실제 문서 출력은 `Runtime result / execution details`에서 확인한다.
-3. `▶ Replay Flow`: 저장 이벤트를 자동 재생한다. `Reset Replay` → `⏭ Next Step`으로 한 이벤트씩 진행할 수도 있다. `전체 결과`는 최종 화면으로 돌아간다.
-4. `🔴 실행 전 공격 실행`: BLOCK, Tool 호출 0회, 출력 차단을 확인한다. 새 run은 자동 선택되고 Replay도 해당 run 기준으로 초기화된다.
-5. `🟠 실행 후 출력 차단 실행`: Tool 호출 1회와 실행 상태, 출력 차단을 확인한다. Replay의 Enforcement → OUTPUT Guard 순서는 저장 순서 그대로다.
-6. `Evidence Stored` 카드에서 count와 run_id / trace_id, SQLite 조회 상태를 확인한다. 아래 `Evidence 타임라인`과 기본 접힘 Raw JSON / Runtime JSON으로 원본을 확인한다.
-7. Sidebar의 `실행 선택`으로 이전 run을 조회한다. Replay는 Runtime을 다시 호출하지 않는다.
+1. `Plugin Execution Trace`에서 상단의 다섯 단계 안내와 세 시나리오 카드를 보여준다. 카드의 예상 결과와 실행 후 실제 결과를 구분한다.
+2. `정상 요청` 카드의 `실행`: 큰 요약 카드에서 ALLOW, Tool 실행됨, Output 전달, Evidence 저장 확인을 보여준다. 실제 문서 출력은 `실행 상세 · 정책 / 출력 / 식별자`에서 확인한다.
+3. `▶ 흐름 재생`: 저장 이벤트를 자동 재생한다. `처음으로` → `⏭ 다음 단계`로 한 이벤트씩 진행할 수도 있다. `전체 결과`는 최종 화면으로 돌아간다.
+4. `공격 시도 차단` 카드의 `실행`: BLOCK, Tool 미실행, 출력 차단을 확인한다. 새 run은 자동 선택되고 Replay도 해당 run 기준으로 초기화된다.
+5. `실행 후 출력 차단` 카드의 `실행`: Tool 실행됨, 출력 차단을 확인한다. Replay의 Enforcement → OUTPUT Guard 순서는 저장 순서 그대로다.
+6. 가로 파이프라인의 현재 단계와 실제 ALLOW / WARN / BLOCK을 설명한다. Plugin Manager는 별도 이벤트가 없는 구조 카드이며 재생 상태를 만들지 않는다. `Evidence · SQLite`에서 저장 count와 조회 상태를 확인한다. `⑤ 저장된 Evidence 확인` 아래 접힌 타임라인·실행 상세·JSON에서 원본과 ID를 확인한다.
+7. 카드 아래 접힌 `이전 실행 불러오기`의 `실행 선택`으로 과거 run을 조회한다. 왼쪽 Sidebar는 사용하지 않는다. Replay는 Runtime을 다시 호출하지 않는다.
 8. `A/B/C Evaluation`: Plugin Configuration에서 A의 네 Plugin OFF, B/C의 같은 네 Plugin ON 및 coordination OFF/ON을 먼저 설명한다.
 9. Baseline 0.80 → Mechanism Demonstration 0.92의 B/C 비교 → 실제 report 표·PNG·표본 수·생성 시각 순서로 설명한다.
 
@@ -42,8 +42,8 @@ uv run --group demo streamlit run demo/dashboard.py
 - `Architecture only / Current code`: Live의 Enabled와 coordination은 현재 `make_security_factory` / `PolicyConfig` 기본값을 조회한 구조 설명이다. Guard 평가나 Tool 실행은 하지 않는다. 선택한 과거 run의 활성 설정이 저장되어 있다는 뜻이 아니다.
 - Evaluation의 A/B/C 구성은 실제 condition YAML과 PluginManager registry에서 읽는다. 변경되거나 별도 정책으로 생성한 report의 과거 구성까지 보증하지 않으므로 report의 policy_version과 metadata도 확인한다.
 - `Stored Evidence`: Guard 이름, stage, 판정, risk, latency, 최종 cumulative risk / policy_version / reason, execution 결과는 조회된 이벤트에서 읽는다. 현재 UI 구간에 기록이 없으면 Ready로 표시하며 미실행으로 확정하지 않는다.
-- `Execution Replay`: `st.fragment(run_every=0.4)`로 UI만 갱신한다. SQLite 조회 순서대로 모든 이벤트를 재생하고, PluginManager dispatch 같은 가상 이벤트를 만들지 않는다. Runtime에 sleep을 넣지 않는다. 전체 목록은 `Replay event sequence`에서 확인한다.
-- Replay의 SecurityContext에는 표시 구간에 저장된 Guard result 수를 표시한다. 이는 `SecurityContext.previous_results`의 내부 개수로 추정한 값이 아니다. 누적 위험도는 최종 SecurityDecision이 재생되기 전까지 pending이다.
+- `Evidence Replay`: `st.fragment(run_every=0.4)`로 UI만 갱신한다. SQLite 조회 순서대로 모든 이벤트를 재생하고, PluginManager dispatch 같은 가상 이벤트를 만들지 않는다. Runtime에 sleep을 넣지 않는다. 전체 목록은 `Replay 이벤트 목록`에서 확인한다.
+- 단계 카드는 실제 매칭 이벤트가 있을 때만 현재 / 완료 / 재생 대기로 강조한다. 기록이 없는 Guard는 `결과 기록 없음`이며 미실행으로 단정하지 않는다. 반복 검사 기록도 유지한다. 누적 위험도는 저장 SecurityDecision이 재생된 이후에만 접힌 판정 근거에 표시한다.
 - Tool calls / output delivered는 완료된 Runtime 반환값·실행 요약이며 Replay의 중간 이벤트로 위장하지 않는다. 최종 Runtime Status도 보존한다.
 - 선택 run의 coordination mode와 STANDARD → STRICT 전환은 Evidence에 없으므로 확인 불가다. Linked 동작 설명과 현재 코드의 ON 표시는 구조 설명으로 구분한다.
 - 0.92 B/C 비교는 저장 summary의 ASR / Block Rate / 표본 수만 사용한다. 개별 ATTACK WARN / BLOCK은 summary에 없어 표시하지 않는다.
