@@ -13,6 +13,7 @@ demo = [
     "streamlit>=1.65.0",
 ]
 dev = [
+    "matplotlib>=3.11.2",
     "pytest>=9.1.1",
     "ruff>=0.16.9",
 ]
