@@ -40,12 +40,47 @@ def report_rows(data: dict) -> list[dict]:
     ]
 
 
+def render_configurations():
+    import streamlit as st
+    from plugin_view import condition_config
+
+    st.markdown("**Plugin Configuration**")
+    for mode, label, column in zip(
+        ("A", "B", "C"), ("No Guard", "Independent", "Linked"), st.columns(3), strict=True,
+    ):
+        config = condition_config(mode)
+        with column, st.container(border=True):
+            st.markdown(f"**{mode} · {label}**")
+            for plugin in config["plugins"]:
+                st.caption(f"🧩 {plugin['name']}: {'ON' if plugin['enabled'] else 'OFF'}")
+            st.write("Cross-layer Coordination:", "ON" if config["mode"] == "linked" else "OFF")
+    st.caption("Architecture only · 현재 condition YAML / PluginManager에서 읽은 구성. B/C는 같은 Guard Plugin을 사용하며 coordination 방식이 다릅니다.")
+
+
+def render_mechanism_comparison(data):
+    import streamlit as st
+
+    st.markdown("**B vs C · Mechanism Comparison**")
+    st.caption("Stored Report · 개별 ATTACK 판정 / Tool 실행 여부를 ASR로 역추론하지 않습니다.")
+    for mode, column in zip(("B", "C"), st.columns(2), strict=True):
+        with column, st.container(border=True):
+            st.markdown(f"**{mode} · {'Independent' if mode == 'B' else 'Linked'}**")
+            values = data["metrics"][mode]
+            st.write("Policy version:", values.get("policy_version", "기록 없음"))
+            st.metric("ASR (금지 Tool 실행 비율)", values.get("asr"))
+            st.metric("Block Rate (전체 trial)", values.get("block_rate"))
+            counts = data.get("sample_counts", {}).get(mode, {})
+            if "asr_numerator" in counts and "asr_denominator" in counts:
+                st.write("ATTACK Tool 실행 / 표본:", f"{counts['asr_numerator']} / {counts['asr_denominator']}")
+            st.caption("개별 WARN/BLOCK 결과는 summary에 없어 표시하지 않습니다.")
+
+
 def render_evaluation():
     import streamlit as st
 
     st.subheader("A/B/C Evaluation")
-    st.caption("A = No Guard · B = Independent Guards · C = Linked / Cross-layer Guards")
-    st.warning("0.92는 Cross-layer 위험 누적 동작 차이를 확인하기 위한 시연용 설정이며, 일반적인 성능 우위를 증명하는 threshold가 아닙니다.")
+    render_configurations()
+    st.warning("0.92는 Cross-layer 위험 누적 메커니즘의 동작 차이를 확인하기 위한 시연용 설정이며, 일반적인 성능 우위를 증명하는 threshold가 아닙니다.")
     st.info("초기 Evaluation Pipeline 검증 결과이며 전체 공격 환경에 대한 최종 보안 성능을 의미하지 않습니다.")
     st.caption("실제 Middleware Runtime · Security Core · Enforcement · SQLite Evidence · Mock Tool · BENIGN-001 1종 · ATTACK-001 1종 · 조건별 반복실행")
     directory = Path(st.text_input("Report directory (하위 폴더 포함)", str(ROOT / "reports"))).expanduser()
@@ -67,6 +102,8 @@ def render_evaluation():
         experiment = data["experiment"]
         st.caption(f"Source: {path} · 생성: {data.get('created_at_utc')} · repeats: {experiment.get('repeats_per_scenario_per_mode')} · total: {experiment.get('total_trials')}")
         st.caption("비율은 0–1, latency는 ms. 반복 수만으로 발표용 검증 여부를 보증하지 않습니다. 임시 smoke report는 공식 발표 결과와 구분하세요.")
+        if threshold == 0.92:
+            render_mechanism_comparison(data)
         st.dataframe(report_rows(data), hide_index=True, width="stretch")
         for name in ("rates.png", "latency.png"):
             image = path.parent / name
