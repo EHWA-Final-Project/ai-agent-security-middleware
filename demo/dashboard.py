@@ -66,7 +66,7 @@ def render_summary(snapshot, events):
     for (label, value), column in zip(labels, st.columns(4), strict=True):
         with column, st.container(border=True):
             st.metric(label, value)
-    st.caption(f"Tool 호출 {snapshot['tool_calls']}회 · Evidence {len(events)}건 · Runtime {result['run_status']}")
+    st.caption(f"Tool 호출 {snapshot['tool_calls']}회 · Evidence {len(events)}건 · 완료된 Runtime: {result['run_status']}")
     if result.get("errors"):
         st.warning("실행 중 오류가 기록되었습니다. 아래 실행 상세를 확인하세요.")
 

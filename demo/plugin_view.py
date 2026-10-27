@@ -80,9 +80,21 @@ def replay_rows(events, cursor):
             "Replay": "▶ CURRENT" if index == cursor else "✓ 완료" if index < cursor else "○ pending",
             "Event": event_label(event), "Result": event_status(event),
             "Stage": event.get("stage") or "—", "event_id": event["event_id"],
+            "created_at": event["created_at"],
         }
         for index, event in enumerate(events)
     ]
+
+
+def replay_caption(events, cursor):
+    """Keep position, timestamp and result in one UI update from the same event."""
+    if cursor < 0:
+        return f"저장 Evidence 0/{len(events)} · 재생 준비"
+    event = events[cursor]
+    return (
+        f"저장 Evidence {cursor + 1}/{len(events)} · {event['created_at']} · "
+        f"{event_label(event)}: {event_status(event)}"
+    )
 
 
 def evidence_status(events, snapshot):
@@ -224,31 +236,29 @@ def render_plugin_runtime(events, snapshot=None):
     playing = st.session_state.get("replay_playing", False)
     st.subheader("③ Guard 실행 흐름")
     st.caption("Evidence Replay · 카드는 플러그인 구조, 강조 표시는 저장 이벤트의 재생 위치입니다.")
+    st.caption("저장된 Evidence를 실행 순서대로 재생합니다. 실제 Runtime은 다시 실행하지 않습니다.")
     if events:
         controls = st.columns(4)
         action = False
-        if controls[0].button("▶ 흐름 재생", key="replay_start", type="primary", width="stretch"):
+        if controls[0].button("▶ 자동으로 흐름 보기", key="replay_start", type="primary", width="stretch"):
             cursor, playing, action = -1, True, True
-        if controls[1].button("⏭ 다음 단계", key="replay_next", width="stretch"):
+        if controls[1].button("→ 한 단계씩 보기", key="replay_next", width="stretch"):
             cursor, playing, action = min(cursor + 1, len(events) - 1), False, True
-        if controls[2].button("처음으로", key="replay_reset", width="stretch"):
+        if controls[2].button("↺ 처음부터", key="replay_reset", width="stretch"):
             cursor, playing, action = -1, False, True
-        if controls[3].button("전체 결과", key="replay_all", width="stretch"):
+        if controls[3].button("✓ 최종 결과 보기", key="replay_all", width="stretch"):
             cursor, playing, action = len(events) - 1, False, True
         if playing and not action:
             cursor = min(cursor + 1, len(events) - 1)
         if cursor >= len(events) - 1:
             playing = False
-        st.progress((cursor + 1) / len(events), text=f"저장 이벤트 {cursor + 1} / {len(events)}")
+        st.progress((cursor + 1) / len(events), text="Evidence Replay")
     else:
         playing = False
     st.session_state["replay_cursor"] = cursor
     st.session_state["replay_playing"] = playing
-    current = events[cursor] if 0 <= cursor < len(events) else None
-    if current:
-        st.info(f"▶ 현재 이벤트 · {event_label(current)} · {event_status(current)}")
-    elif events:
-        st.caption("재생 준비 · 다음 단계 또는 흐름 재생을 눌러 시작하세요.")
+    if events:
+        st.info(replay_caption(events, cursor))
     render_pipeline(config, events, cursor)
     render_outcome(events, cursor, snapshot)
     if events:
