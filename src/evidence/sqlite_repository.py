@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from enums import Stage
@@ -19,7 +20,7 @@ class SQLiteEvidenceRepository(EvidenceRepository):
         return connection
 
     def _initialize(self) -> None:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS security_events (
@@ -48,7 +49,7 @@ class SQLiteEvidenceRepository(EvidenceRepository):
             )
 
     def save_event(self, event: SecurityEvent) -> None:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute(
                 """
                 INSERT OR IGNORE INTO security_events (
@@ -73,7 +74,7 @@ class SQLiteEvidenceRepository(EvidenceRepository):
         if field not in allowed_fields:
             raise ValueError(f"Unsupported query field: {field}")
 
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 f"SELECT * FROM security_events WHERE {field} = ? ORDER BY created_at ASC",
                 (value,),
