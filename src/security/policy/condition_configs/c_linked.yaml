@@ -1,0 +1,30 @@
+# Condition C - Cross-layer (linked) Guards.
+# Risk accumulates across Guards and an earlier WARN raises the inspection mode
+# for later stages. Same Guards and thresholds as B; only coordination_mode
+# differs.
+#
+# Thresholds and weights are identical in A/B/C. They are P0 smoke values, not
+# tuned values. 
+
+policy_version: "v0.1.0-cond-c-linked"
+
+strict_threshold: 0.50
+block_threshold: 0.80
+
+guard_weights:
+  input_guard: 1.0
+  context_guard: 1.0
+  tool_guard: 1.0
+  output_guard: 1.0
+
+coordination_mode: linked
+
+guards:
+  input_guard:
+    enabled: true
+  context_guard:
+    enabled: true
+  tool_guard:
+    enabled: true
+  output_guard:
+    enabled: true
