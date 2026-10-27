@@ -49,11 +49,14 @@ def render_configurations():
         ("A", "B", "C"), ("No Guard", "Independent", "Linked"), st.columns(3), strict=True,
     ):
         config = condition_config(mode)
+        enabled = sum(plugin["enabled"] for plugin in config["plugins"])
+        coordination = "N/A" if not enabled else "ON" if config["mode"] == "linked" else "OFF"
         with column, st.container(border=True):
             st.markdown(f"**{mode} · {label}**")
+            st.markdown(f"**Guard Plugins: {f'{enabled} ON' if enabled else 'ALL OFF'}**")
+            st.markdown(f"**Cross-layer Coordination: {coordination}**")
             for plugin in config["plugins"]:
                 st.caption(f"🧩 {plugin['name']}: {'ON' if plugin['enabled'] else 'OFF'}")
-            st.write("Cross-layer Coordination:", "ON" if config["mode"] == "linked" else "OFF")
     st.caption("Architecture only · 현재 condition YAML / PluginManager에서 읽은 구성. B/C는 같은 Guard Plugin을 사용하며 coordination 방식이 다릅니다.")
 
 
@@ -83,7 +86,8 @@ def render_evaluation():
     st.warning("0.92는 Cross-layer 위험 누적 메커니즘의 동작 차이를 확인하기 위한 시연용 설정이며, 일반적인 성능 우위를 증명하는 threshold가 아닙니다.")
     st.info("초기 Evaluation Pipeline 검증 결과이며 전체 공격 환경에 대한 최종 보안 성능을 의미하지 않습니다.")
     st.caption("실제 Middleware Runtime · Security Core · Enforcement · SQLite Evidence · Mock Tool · BENIGN-001 1종 · ATTACK-001 1종 · 조건별 반복실행")
-    directory = Path(st.text_input("Report directory (하위 폴더 포함)", str(ROOT / "reports"))).expanduser()
+    with st.expander("발표 설정 / Report 경로", expanded=False):
+        directory = Path(st.text_input("Report directory (하위 폴더 포함)", str(ROOT / "reports"))).expanduser()
     reports, errors = discover_reports(directory)
     for error in errors:
         st.warning(f"Report 읽기 실패: {error}")

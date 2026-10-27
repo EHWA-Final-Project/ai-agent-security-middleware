@@ -2,6 +2,7 @@
 
 import importlib
 import json
+import sqlite3
 from copy import deepcopy
 from pathlib import Path
 
@@ -67,15 +68,25 @@ def test_runtime_scenarios_replay_and_run_switch_preserve_evidence(dashboard):
 
     run_id = snapshots[-1]["result"]["identity"]["run_id"]
     before = deepcopy(service.query_events(run_id))
+    view = importlib.import_module("plugin_view")
+    assert view.replay_caption(before, len(before) - 1) in [item.value for item in at.info]
+    assert [at.button(key=key).label for key in ("replay_start", "replay_next", "replay_reset", "replay_all")] == [
+        "▶ 자동으로 흐름 보기", "→ 한 단계씩 보기", "↺ 처음부터", "✓ 최종 결과 보기",
+    ]
     at.button(key="replay_reset").click().run()
     assert at.session_state["replay_cursor"] == -1
     at.button(key="replay_next").click().run()
     assert at.session_state["replay_cursor"] == 0
+    assert before[0]["event_type"] == "RUN_STATUS"
+    assert before[0]["payload"]["run_status"] == "CREATED"
+    assert view.replay_caption(before, 0) in [item.value for item in at.info]
+    assert not any("저장 Evidence 1/" in item.value and "COMPLETED" in item.value for item in at.info)
     at.button(key="replay_start").click().run()
     assert at.session_state["replay_cursor"] == -1
     assert at.session_state["replay_playing"] is True
     at.run()
     assert at.session_state["replay_cursor"] == 0
+    assert view.replay_caption(before, 0) in [item.value for item in at.info]
     at.button(key="replay_next").click().run()
     assert at.session_state["replay_cursor"] == 1
     assert at.session_state["replay_playing"] is False
@@ -109,6 +120,19 @@ def test_replay_does_not_invent_or_reorder_events(dashboard):
     assert rows[2]["Replay"] == "○ pending"
     assert events == original
     assert all("Plugin Manager" not in row["Event"] for row in rows)
+    with sqlite3.connect(service.DB.as_uri() + "?mode=ro", uri=True) as connection:
+        raw = connection.execute(
+            "SELECT event_id, created_at, event_type, payload FROM security_events WHERE run_id = ? ORDER BY created_at ASC",
+            (snapshot["result"]["identity"]["run_id"],),
+        ).fetchall()
+    assert [row[0] for row in raw] == [row["event_id"] for row in rows]
+    assert [row[1] for row in raw] == [event["created_at"].replace("Z", "+00:00") for event in events]
+    assert raw[0][2] == "RUN_STATUS" and json.loads(raw[0][3])["run_status"] == "CREATED"
+    assert raw[-1][2] == "RUN_STATUS" and json.loads(raw[-1][3])["run_status"] == "COMPLETED"
+    # Even unusual repository order must not be silently "corrected" in the UI.
+    reversed_events = list(reversed(events))
+    assert [row["event_id"] for row in view.replay_rows(reversed_events, 0)] == [event["event_id"] for event in reversed_events]
+    assert "COMPLETED" in view.replay_caption(reversed_events, 0)
 
 
 def test_evaluation_configuration_and_summary_only_comparison(dashboard, tmp_path):
@@ -126,6 +150,16 @@ def test_evaluation_configuration_and_summary_only_comparison(dashboard, tmp_pat
     assert sum("Condition" in item.value.columns for item in at.dataframe) == 2
     assert any("B vs C" in text.value for text in at.markdown)
     assert any("summary에 없어" in text.value for text in at.caption)
+    configuration = [item.value for item in at.markdown]
+    assert "**Guard Plugins: ALL OFF**" in configuration
+    assert configuration.count("**Guard Plugins: 4 ON**") == 2
+    assert [item for item in configuration if item.startswith("**Cross-layer Coordination:")] == [
+        "**Cross-layer Coordination: N/A**", "**Cross-layer Coordination: OFF**", "**Cross-layer Coordination: ON**",
+    ]
+    settings = next(item for item in at.expander if item.label == "발표 설정 / Report 경로")
+    assert settings.proto.expanded is False
+    assert len(settings.text_input) == 1
+    assert not any("Evaluation 결과 파일이 없습니다" in item.value for item in at.info)
     view = importlib.import_module("plugin_view")
     a, b, c = (view.condition_config(mode) for mode in ("A", "B", "C"))
     assert not any(plugin["enabled"] for plugin in a["plugins"])
