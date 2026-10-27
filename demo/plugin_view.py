@@ -85,30 +85,131 @@ def replay_rows(events, cursor):
     ]
 
 
-def render_plugin_cards(config, visible, current=None):
-    for stage, column in zip(STAGES, st.columns(4), strict=True):
+def evidence_status(events, snapshot):
+    """Confirm only what the SQLite query and completed Runtime result support."""
+    if not events:
+        return "기록 없음"
+    identity = snapshot["result"]["identity"]
+    matched = all(
+        event["run_id"] == identity["run_id"] and event["trace_id"] == identity["trace_id"]
+        and event["payload"].get("run_id") == identity["run_id"]
+        and event["payload"].get("trace_id") == identity["trace_id"]
+        for event in events
+    )
+    result = snapshot["result"]
+    if matched and not result.get("errors") and result.get("run_status") == "COMPLETED":
+        return "저장 확인"
+    return "확인 필요"
+
+
+def pipeline_step(events, cursor, kinds, stage=None):
+    """Replay position comes only from matching real events, never stage order."""
+    matches = [
+        index for index, event in enumerate(events)
+        if event["event_type"] in kinds and (stage is None or event["payload"].get("stage") == stage)
+    ]
+    seen = [index for index in matches if index <= cursor]
+    if not matches:
+        phase = "missing"
+    elif cursor in matches:
+        phase = "current"
+    elif seen:
+        phase = "complete" if len(seen) == len(matches) else "visited"
+    else:
+        phase = "pending"
+    return {"phase": phase, "events": [events[index] for index in seen]}
+
+
+def render_phase(step):
+    phase = step["phase"]
+    if phase == "current":
+        st.info("▶ 현재 단계")
+    elif phase == "complete":
+        st.caption("✓ 재생 완료")
+    elif phase == "visited":
+        st.caption("↻ 일부 기록 확인")
+    elif phase == "pending":
+        st.caption("○ 재생 대기")
+    else:
+        st.caption("— 결과 기록 없음")
+
+
+def render_pipeline(config, events, cursor):
+    # The horizontal layout is architecture. Highlighting uses event indices only.
+    columns = st.columns([1.1, 1.2, 1.5, 1.5, 1.5, 1.5])
+    runtime = pipeline_step(events, cursor, {"RUNTIME_OBSERVATION", "RUN_STATUS"})
+    with columns[0], st.container(border=True):
+        st.caption("시작 →")
+        st.markdown("**Runtime**")
+        render_phase(runtime)
+        if runtime["events"]:
+            st.caption(event_status(runtime["events"][-1]))
+    with columns[1], st.container(border=True):
+        st.caption("연결 →")
+        st.markdown("**Plugin Manager**")
+        st.caption("🧩 Guard 플러그인 연결")
+        st.caption("구조 설명 · 별도 이벤트 없음")
+    for stage, column in zip(STAGES, columns[2:], strict=True):
+        step = pipeline_step(events, cursor, {"SECURITY_RESULT"}, stage)
         with column, st.container(border=True):
-            st.markdown(f"**🧩 {stage} GUARD**")
-            st.caption(f"Plugin · {stage}")
-            for plugin in config["plugins"]:
-                if plugin["stage"] == stage:
-                    st.write(plugin["name"])
-                    st.caption(f"Current code: {'ENABLED' if plugin['enabled'] else 'DISABLED'}")
-            results = [e for e in visible if e["event_type"] == "SECURITY_RESULT" and e["payload"].get("stage") == stage]
-            if current and current["event_type"] == "SECURITY_RESULT" and current["payload"].get("stage") == stage:
-                st.info("▶ CURRENT · Stored Evidence")
-            elif results:
-                st.caption("✓ 완료 · 저장 결과 표시")
-            if not results:
-                st.caption("○ Ready · 표시 구간에 결과 기록 없음")
-            for event in results:
+            st.caption("Guard Plugin →")
+            st.markdown(f"**🧩 {stage}**")
+            render_phase(step)
+            for event in step["events"]:
                 payload = event["payload"]
-                st.caption(f"Stored Evidence · {payload.get('guard_name')}")
+                st.caption(payload.get("guard_name", "Guard"))
                 show_status(payload.get("decision"), payload.get("execution_status"))
                 if payload.get("risk_score") is not None:
                     st.write(f"Risk {payload['risk_score']:.3f}")
                 if payload.get("latency_ms") is not None:
                     st.caption(f"{payload['latency_ms']:.3f} ms")
+    with st.expander("Cross-layer Coordination · 플러그인 구성과 데이터 출처", expanded=False):
+        st.write("Linked mode에서는 앞 단계 Guard 결과가 SecurityContext에 누적되어 후속 판단에 반영됩니다.")
+        st.caption(f"구조 설명 · 현재 코드 coordination: {config['mode']} · 선택 run의 저장 설정이 아닙니다.")
+        st.dataframe(config["plugins"], hide_index=True, width="stretch")
+        st.caption("현재 구성은 기존 make_security_factory / PolicyConfig에서 읽습니다. 과거 run의 Enabled / coordination을 추론하지 않습니다.")
+        st.caption("SecurityContext의 inspection_mode / STRICT 전환은 Evidence에 저장되지 않아 표시하지 않습니다.")
+
+
+def render_outcome(events, cursor, snapshot):
+    final, enforcement, evidence = st.columns(3)
+    decision_step = pipeline_step(events, cursor, {"SECURITY_DECISION"})
+    execution_step = pipeline_step(events, cursor, {"EXECUTION_RESULT"})
+    decision = decision_step["events"][-1]["payload"] if decision_step["events"] else {}
+    execution = execution_step["events"][-1]["payload"] if execution_step["events"] else {}
+    with final, st.container(border=True):
+        st.caption("④ 최종 보안 판정 →")
+        st.markdown("**SecurityDecision**")
+        render_phase(decision_step)
+        show_status(decision.get("decision"))
+        if decision:
+            st.caption(decision.get("reason", ""))
+    with enforcement, st.container(border=True):
+        st.caption("실행 제어 →")
+        st.markdown("**Enforcement**")
+        render_phase(execution_step)
+        if execution:
+            st.write("Tool 실행:", "실행됨" if execution.get("executed") is True else "미실행" if execution.get("executed") is False else "기록 없음")
+            st.caption(execution.get("execution_state", "—"))
+    with evidence, st.container(border=True):
+        st.caption("⑤ 저장 자료 · Replay와 별도")
+        st.markdown("**Evidence · SQLite**")
+        st.metric("저장 이벤트", f"{len(events)}건")
+        if snapshot:
+            status = evidence_status(events, snapshot)
+            if status == "저장 확인":
+                st.success("SQLite persistence OK · 저장 확인")
+            elif status == "확인 필요":
+                st.warning("Evidence 조회됨 · 실행 상세 확인 필요")
+            else:
+                st.caption("저장 Evidence 없음")
+        else:
+            st.caption("시나리오 실행 후 표시됩니다.")
+    if decision or execution:
+        with st.expander("판정 근거 · 누적 위험 / 정책 / 실행 상태", expanded=False):
+            st.write("SecurityContext · 저장된 최종 누적 위험:", decision.get("cumulative_risk_score", "기록 없음 / 재생 대기"))
+            st.write("정책 버전:", decision.get("policy_version", "기록 없음 / 재생 대기"))
+            st.write("실행 상태:", execution.get("execution_state", "기록 없음 / 재생 대기"))
 
 
 @st.fragment(run_every=0.4)
@@ -119,93 +220,38 @@ def render_plugin_runtime(events, snapshot=None):
         st.session_state["replay_run"] = run_id
         st.session_state["replay_cursor"] = len(events) - 1
         st.session_state["replay_playing"] = False
-    cursor = st.session_state.get("replay_cursor", len(events) - 1)
+    cursor = max(-1, min(st.session_state.get("replay_cursor", len(events) - 1), len(events) - 1))
     playing = st.session_state.get("replay_playing", False)
-    st.subheader("Plugin Architecture")
-    st.caption("Architecture only · 현재 코드 구성 / 아래 Stored Evidence는 선택 run의 저장 결과")
-    if snapshot:
-        st.caption(f"선택 시나리오: {snapshot['scenario']['name']} · Runtime Status: {snapshot['result']['run_status']}")
-    with st.container(border=True):
-        st.markdown("**Runtime → Plugin Manager → Guard Plugins**")
-        st.caption("Architecture only · Plugin Manager dispatch는 별도 Evidence 이벤트가 아닙니다.")
-        st.caption("↓ SecurityContext / Cross-layer Coordination → SecurityDecision → Enforcement → Evidence")
+    st.subheader("③ Guard 실행 흐름")
+    st.caption("Evidence Replay · 카드는 플러그인 구조, 강조 표시는 저장 이벤트의 재생 위치입니다.")
     if events:
-        st.markdown("**Execution Replay · Stored Evidence**")
         controls = st.columns(4)
         action = False
-        if controls[0].button("▶ Replay Flow", key="replay_start"):
-            cursor, playing = -1, True
-            action = True
-        if controls[1].button("⏭ Next Step", key="replay_next"):
-            cursor, playing = min(cursor + 1, len(events) - 1), False
-            action = True
-        if controls[2].button("Reset Replay", key="replay_reset"):
-            cursor, playing = -1, False
-            action = True
-        if controls[3].button("전체 결과", key="replay_all"):
-            cursor, playing = len(events) - 1, False
-            action = True
+        if controls[0].button("▶ 흐름 재생", key="replay_start", type="primary", width="stretch"):
+            cursor, playing, action = -1, True, True
+        if controls[1].button("⏭ 다음 단계", key="replay_next", width="stretch"):
+            cursor, playing, action = min(cursor + 1, len(events) - 1), False, True
+        if controls[2].button("처음으로", key="replay_reset", width="stretch"):
+            cursor, playing, action = -1, False, True
+        if controls[3].button("전체 결과", key="replay_all", width="stretch"):
+            cursor, playing, action = len(events) - 1, False, True
         if playing and not action:
             cursor = min(cursor + 1, len(events) - 1)
         if cursor >= len(events) - 1:
             playing = False
-        st.caption("저장 후 visual replay · 0.4초 UI 갱신 · Runtime 재실행/지연 없음")
-        st.progress((cursor + 1) / len(events), text=f"Evidence {cursor + 1} / {len(events)}")
+        st.progress((cursor + 1) / len(events), text=f"저장 이벤트 {cursor + 1} / {len(events)}")
+    else:
+        playing = False
     st.session_state["replay_cursor"] = cursor
     st.session_state["replay_playing"] = playing
-    visible = events[:cursor + 1]
     current = events[cursor] if 0 <= cursor < len(events) else None
-    render_plugin_cards(config, visible, current)
-    with st.container(border=True):
-        st.markdown("**↓ SecurityContext / Cross-layer Coordination**")
-        st.caption(f"Architecture only · Current code coordination: {config['mode']} · Cross-layer Coordination: {'ON' if config['mode'] == 'linked' else 'OFF'}")
-        st.caption("Linked mode에서는 앞 단계 Guard 결과가 SecurityContext에 누적되어 후속 보안 판단에 반영됩니다.")
-        decisions = [event["payload"] for event in visible if event["event_type"] == "SECURITY_DECISION"]
-        decision = decisions[-1] if decisions else {}
-        st.write("Stored cumulative risk:", decision.get("cumulative_risk_score", "기록 없음 / pending"))
-        st.write("Stored policy_version:", decision.get("policy_version", "기록 없음 / pending"))
-        count = sum(e["event_type"] == "SECURITY_RESULT" for e in visible)
-        st.caption(f"표시 구간 Guard result 기록: {count}건 · SecurityContext.previous_results 개수로 추론하지 않음")
-        with st.expander("Configuration / Evidence 구분"):
-            st.write("현재 구성은 runtime.composition.make_security_factory와 PolicyConfig에서 읽습니다. 과거 run의 Enabled / coordination 설정을 보증하는 기록이 아닙니다.")
-            st.write("선택 run의 coordination mode와 inspection_mode / STRICT 전환은 Evidence에 저장되지 않아 확인 불가입니다.")
-    final, enforcement = st.columns(2)
-    with final, st.container(border=True):
-        st.markdown("**↓ SecurityDecision**")
-        show_status(decision.get("decision"))
-        st.write("Cumulative risk:", decision.get("cumulative_risk_score", "—"))
-        st.write("Policy:", decision.get("policy_version", "—"))
-        st.caption(decision.get("reason", "Stored Evidence 대기"))
-    with enforcement, st.container(border=True):
-        st.markdown("**↓ Enforcement**")
-        executions = [e["payload"] for e in visible if e["event_type"] == "EXECUTION_RESULT"]
-        execution = executions[-1] if executions else {}
-        st.write("Tool executed:", execution.get("executed", "기록 없음 / pending"))
-        st.write("execution_state:", execution.get("execution_state", "—"))
-        if snapshot:
-            st.caption("완료된 Runtime 반환값 / 실행 요약 (Replay 진행과 별도)")
-            st.write("Tool calls:", snapshot["tool_calls"])
-            st.write("Output delivered:", snapshot["result"]["output_allowed"])
-    with st.container(border=True):
-        st.markdown("**↓ Evidence Stored · SQLite**")
-        st.write("Event count:", len(events))
-        if snapshot:
-            identity = snapshot["result"]["identity"]
-            st.code(f"run_id   {identity['run_id']}\ntrace_id {identity['trace_id']}", language=None)
-            matched = bool(events) and all(e["run_id"] == identity["run_id"] and e["trace_id"] == identity["trace_id"] for e in events)
-            errors = snapshot["result"].get("errors", [])
-            if matched and not errors and snapshot["result"].get("run_status") == "COMPLETED":
-                st.success("SQLite persistence OK · 조회된 Evidence ID 일치")
-            elif events:
-                st.warning("Evidence 조회됨 · ID / Runtime status / errors 상세 확인 필요")
-            else:
-                st.caption("저장 Evidence 없음")
-        else:
-            st.caption("시나리오 실행 전 · 저장 결과 없음")
+    if current:
+        st.info(f"▶ 현재 이벤트 · {event_label(current)} · {event_status(current)}")
+    elif events:
+        st.caption("재생 준비 · 다음 단계 또는 흐름 재생을 눌러 시작하세요.")
+    render_pipeline(config, events, cursor)
+    render_outcome(events, cursor, snapshot)
     if events:
-        st.caption("Replay는 SQLite 조회 순서를 따릅니다. Enforcement가 OUTPUT Guard보다 먼저 나타나는 등 실제 순서를 재정렬하지 않습니다.")
-        if current:
-            st.info(f"▶ CURRENT · {event_label(current)} · {event_status(current)}")
-            st.caption(f"Stored Evidence · event_id: {current['event_id']}")
-        with st.expander("Replay event sequence · 완료 / CURRENT / pending"):
+        with st.expander("Replay 이벤트 목록 · 완료 / 현재 / 대기", expanded=False):
+            st.caption("SQLite 조회 순서 그대로 재생합니다. Runtime 재실행이나 지연은 없습니다. Enforcement가 OUTPUT보다 먼저 나타날 수 있습니다.")
             st.dataframe(replay_rows(events, cursor), hide_index=True, width="stretch")

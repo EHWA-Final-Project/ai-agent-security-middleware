@@ -37,7 +37,13 @@ def test_runtime_scenarios_replay_and_run_switch_preserve_evidence(dashboard):
     at = AppTest.from_file(str(ROOT / "demo" / "dashboard.py"), default_timeout=30).run()
     assert not at.exception
     assert [tab.label for tab in at.tabs] == ["Plugin Execution Trace", "A/B/C Evaluation"]
-    assert any("Plugin Architecture" in sub.value for sub in at.subheader)
+    assert any("Guard 실행 흐름" in sub.value for sub in at.subheader)
+    assert not at.sidebar.selectbox
+    assert not at.sidebar.button
+    assert at.expander[0].label == "이전 실행 불러오기"
+    assert at.expander[0].proto.expanded is False
+    assert [at.button(key=f"scenario_{key}").label for key in ("1", "2", "3")] == ["실행"] * 3
+    assert any("예상 결과" in item.value for item in at.caption)
     snapshots = []
     for key, expected in (("1", ("ALLOW", 1, True)), ("2", ("BLOCK", 0, False)), ("3", ("BLOCK", 1, False))):
         at.button(key=f"scenario_{key}").click().run()
@@ -47,10 +53,17 @@ def test_runtime_scenarios_replay_and_run_switch_preserve_evidence(dashboard):
         result = snapshot["result"]
         assert (result["decision"]["decision"], snapshot["tool_calls"], result["output_allowed"]) == expected
         assert result["errors"] == []
+        assert [(metric.label, metric.value) for metric in at.metric[:4]] == [
+            ("최종 판정", expected[0]),
+            ("Tool 실행 여부", "실행됨" if expected[1] else "미실행"),
+            ("Output 전달 여부", "전달" if expected[2] else "차단"),
+            ("Evidence 저장 여부", "저장 확인"),
+        ]
         assert at.session_state["selected_run"] == result["identity"]["run_id"]
         events = service.query_events(result["identity"]["run_id"])
         assert events
         assert all(e["run_id"] == result["identity"]["run_id"] and e["trace_id"] == result["identity"]["trace_id"] for e in events)
+        assert all(item.proto.expanded is False for item in at.expander)
 
     run_id = snapshots[-1]["result"]["identity"]["run_id"]
     before = deepcopy(service.query_events(run_id))
@@ -110,7 +123,7 @@ def test_evaluation_configuration_and_summary_only_comparison(dashboard, tmp_pat
         (directory / "summary.json").write_text(json.dumps(data), encoding="utf-8")
     at = AppTest.from_file(str(ROOT / "demo" / "dashboard.py"), default_timeout=30).run()
     assert not at.exception, at.exception
-    assert len(at.dataframe) == 2  # summary-only reports; no PNG or invented trial data
+    assert sum("Condition" in item.value.columns for item in at.dataframe) == 2
     assert any("B vs C" in text.value for text in at.markdown)
     assert any("summary에 없어" in text.value for text in at.caption)
     view = importlib.import_module("plugin_view")
@@ -129,6 +142,7 @@ def test_missing_evidence_does_not_claim_persistence_success(dashboard, monkeypa
     assert not at.exception, at.exception
     assert not any("SQLite persistence OK" in item.value for item in at.success)
     assert any("저장 Evidence 없음" in item.value for item in at.caption)
+    assert next(item.value for item in at.metric if item.label == "Evidence 저장 여부") == "기록 없음"
 
 
 def test_guard_error_and_timeout_take_priority_over_allow(dashboard):
@@ -138,3 +152,34 @@ def test_guard_error_and_timeout_take_priority_over_allow(dashboard):
     assert not at.exception
     assert len(at.error) == 2
     assert not at.success
+
+
+def test_pipeline_highlights_only_recorded_stages_and_preserves_rechecks(dashboard):
+    service, _, _ = dashboard
+    view = importlib.import_module("plugin_view")
+    snapshot = service.run_scenario("2")
+    events = service.query_events(snapshot["result"]["identity"]["run_id"])
+    original = deepcopy(events)
+    guard_index = next(i for i, event in enumerate(events) if event["event_type"] == "SECURITY_RESULT")
+    stage = events[guard_index]["payload"]["stage"]
+    assert view.pipeline_step(events, -1, {"SECURITY_RESULT"}, stage)["phase"] == "pending"
+    current = view.pipeline_step(events, guard_index, {"SECURITY_RESULT"}, stage)
+    assert current["phase"] == "current"
+    assert current["events"][-1] == events[guard_index]
+    assert view.pipeline_step(events, len(events) - 1, {"SECURITY_RESULT"}, stage)["phase"] == "complete"
+    assert view.pipeline_step(events, len(events) - 1, {"SECURITY_RESULT"}, "OUTPUT") == {"phase": "missing", "events": []}
+    assert view.pipeline_step(events, 0, {"PLUGIN_MANAGER_DISPATCH"})["phase"] == "missing"
+    repeated = [events[guard_index], deepcopy(events[guard_index])]
+    assert view.pipeline_step(repeated, 0, {"SECURITY_RESULT"}, stage)["phase"] == "current"
+    assert view.pipeline_step(repeated, 1, {"SECURITY_RESULT"}, stage)["events"] == repeated
+    assert events == original
+
+
+def test_evidence_summary_requires_matching_payload_identity(dashboard):
+    service, _, _ = dashboard
+    view = importlib.import_module("plugin_view")
+    snapshot = service.run_scenario("1")
+    events = service.query_events(snapshot["result"]["identity"]["run_id"])
+    assert view.evidence_status(events, snapshot) == "저장 확인"
+    events[0]["payload"]["trace_id"] = "different-trace"
+    assert view.evidence_status(events, snapshot) == "확인 필요"
