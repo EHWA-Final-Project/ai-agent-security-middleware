@@ -1,13 +1,17 @@
 # 10/29 발표 실행 가이드
 
+최종 발표 기준 branch는 **`dev`**다. Freeze candidate HEAD는 `6f2de1f3385d66d68ae9fa64047cd91c6b09a3e3`이며 PR #20–#23은 dev merge 완료다. `main` release merge는 발표 후 별도 판단한다.
+
+프로젝트 핵심은 **Plugin-based AI Agent Security Middleware**이고 Dashboard는 실제 Runtime / Guard / Enforcement / Evidence / Evaluation을 보여주는 Presentation / Observability layer다.
+
 ## 환경과 실행
 
-프로젝트 루트(`pyproject.toml`, `uv.lock`, `demo/`가 있는 디렉터리)에서 실행한다.
-이 PC의 저장소는 중첩되어 있으므로 바깥쪽 `main` 또는 `feat/platform-demo` 저장소와 혼동하지 않는다.
+`pyproject.toml`, `uv.lock`, `demo/`가 존재하는 최신 `dev` repository root에서 실행한다. 발표 PC마다 clone / worktree 위치가 다르므로 특정 과거 worktree 이름이나 Windows 절대 경로에 의존하지 않는다. 먼저 아래 결과가 대상 root / `dev` / freeze candidate HEAD와 일치하는지 확인한다.
 
 ```powershell
-cd C:\Users\jso25\OneDrive\Desktop\ai-agent-security-middleware\ai-agent-security-middleware\ai-agent-security-middleware-sprint2-demo
+git rev-parse --show-toplevel
 git branch --show-current
+git rev-parse HEAD
 uv sync --frozen --group demo
 uv run --group demo pytest -q
 uv run --group demo ruff check .
@@ -16,23 +20,18 @@ uv run --group demo streamlit run demo/dashboard.py
 
 `demo`는 별도 dependency group이다. 일반 `uv sync --frozen`만 실행하면 Streamlit이 설치되지 않거나 제거될 수 있으므로 시연은 반드시 `--group demo`로 실행한다. CLI는 `uv run python demo/cli.py`로 계속 사용할 수 있다.
 
-Git Bash에서는 경로에 `/`를 사용한다. 바깥쪽 `feat/platform-demo` 저장소에 있다면 `cd ai-agent-security-middleware-sprint2-demo` 후 위 Streamlit 명령을 실행한다. 또는 다음 절대 경로를 사용한다.
-
-```bash
-cd /c/Users/jso25/OneDrive/Desktop/ai-agent-security-middleware/ai-agent-security-middleware/ai-agent-security-middleware-sprint2-demo
-uv run --group demo streamlit run demo/dashboard.py
-```
+Git Bash에서 root로 이동할 때는 `/` 경로를 사용하고 공백이 있는 경로는 따옴표로 감싼다. `Group demo is not defined`가 나오면 다른 저장소에서 실행하지 않았는지 root와 branch를 다시 확인한다. 실행 후 `http://localhost:8501`에 접속하며 종료는 `Ctrl+C`다.
 
 ## 클릭 순서와 확인 항목
 
 1. `Plugin Execution Trace`에서 상단의 다섯 단계 안내와 세 시나리오 카드를 보여준다. 카드의 예상 결과와 실행 후 실제 결과를 구분한다.
 2. `정상 요청` 카드의 `실행`: 큰 요약 카드에서 ALLOW, Tool 실행됨, Output 전달, Evidence 저장 확인을 보여준다. 실제 문서 출력은 `실행 상세 · 정책 / 출력 / 식별자`에서 확인한다.
-3. `▶ 흐름 재생`: 저장 이벤트를 자동 재생한다. `처음으로` → `⏭ 다음 단계`로 한 이벤트씩 진행할 수도 있다. `전체 결과`는 최종 화면으로 돌아간다.
+3. `▶ 자동으로 흐름 보기`: 저장 이벤트를 자동 재생한다. `↺ 처음부터` → `→ 한 단계씩 보기`로 한 이벤트씩 진행할 수도 있다. `✓ 최종 결과 보기`는 최종 화면으로 돌아간다. 저장된 Evidence를 실행 순서대로 재생하며 실제 Runtime은 다시 실행하지 않는다.
 4. `공격 시도 차단` 카드의 `실행`: BLOCK, Tool 미실행, 출력 차단을 확인한다. 새 run은 자동 선택되고 Replay도 해당 run 기준으로 초기화된다.
 5. `실행 후 출력 차단` 카드의 `실행`: Tool 실행됨, 출력 차단을 확인한다. Replay의 Enforcement → OUTPUT Guard 순서는 저장 순서 그대로다.
 6. 가로 파이프라인의 현재 단계와 실제 ALLOW / WARN / BLOCK을 설명한다. Plugin Manager는 별도 이벤트가 없는 구조 카드이며 재생 상태를 만들지 않는다. `Evidence · SQLite`에서 저장 count와 조회 상태를 확인한다. `⑤ 저장된 Evidence 확인` 아래 접힌 타임라인·실행 상세·JSON에서 원본과 ID를 확인한다.
 7. 카드 아래 접힌 `이전 실행 불러오기`의 `실행 선택`으로 과거 run을 조회한다. 왼쪽 Sidebar는 사용하지 않는다. Replay는 Runtime을 다시 호출하지 않는다.
-8. `A/B/C Evaluation`: Plugin Configuration에서 A의 네 Plugin OFF, B/C의 같은 네 Plugin ON 및 coordination OFF/ON을 먼저 설명한다.
+8. `A/B/C Evaluation`: Plugin Configuration에서 A = ALL OFF / Coordination N/A, B = 4 ON / OFF, C = 4 ON / ON을 먼저 설명한다. B/C는 같은 Plugin을 사용하며 coordination 방식이 다르다.
 9. Baseline 0.80 → Mechanism Demonstration 0.92의 B/C 비교 → 실제 report 표·PNG·표본 수·생성 시각 순서로 설명한다.
 
 실행 결과, execution state / executed, output allowed, policy reason / version, cumulative risk, run_id / trace_id, Evidence Timeline / Raw JSON은 기존과 같이 조회할 수 있다. 합성 API_KEY 출력은 개발자 상세에 보존되지만 차단된 출력은 전달 영역에 표시하지 않는다.
@@ -41,7 +40,7 @@ uv run --group demo streamlit run demo/dashboard.py
 
 - `Architecture only / Current code`: Live의 Enabled와 coordination은 현재 `make_security_factory` / `PolicyConfig` 기본값을 조회한 구조 설명이다. Guard 평가나 Tool 실행은 하지 않는다. 선택한 과거 run의 활성 설정이 저장되어 있다는 뜻이 아니다.
 - Evaluation의 A/B/C 구성은 실제 condition YAML과 PluginManager registry에서 읽는다. 변경되거나 별도 정책으로 생성한 report의 과거 구성까지 보증하지 않으므로 report의 policy_version과 metadata도 확인한다.
-- `Stored Evidence`: Guard 이름, stage, 판정, risk, latency, 최종 cumulative risk / policy_version / reason, execution 결과는 조회된 이벤트에서 읽는다. 현재 UI 구간에 기록이 없으면 Ready로 표시하며 미실행으로 확정하지 않는다.
+- `Stored Evidence`: Guard 이름, stage, 판정, risk, latency, 최종 cumulative risk / policy_version / reason, execution 결과는 조회된 이벤트에서 읽는다. 해당 기록이 없으면 `결과 기록 없음`으로 표시하며 미실행으로 확정하지 않는다.
 - `Evidence Replay`: `st.fragment(run_every=0.4)`로 UI만 갱신한다. SQLite 조회 순서대로 모든 이벤트를 재생하고, PluginManager dispatch 같은 가상 이벤트를 만들지 않는다. Runtime에 sleep을 넣지 않는다. 전체 목록은 `Replay 이벤트 목록`에서 확인한다.
 - 단계 카드는 실제 매칭 이벤트가 있을 때만 현재 / 완료 / 재생 대기로 강조한다. 기록이 없는 Guard는 `결과 기록 없음`이며 미실행으로 단정하지 않는다. 반복 검사 기록도 유지한다. 누적 위험도는 저장 SecurityDecision이 재생된 이후에만 접힌 판정 근거에 표시한다.
 - Tool calls / output delivered는 완료된 Runtime 반환값·실행 요약이며 Replay의 중간 이벤트로 위장하지 않는다. 최종 Runtime Status도 보존한다.
@@ -50,11 +49,11 @@ uv run --group demo streamlit run demo/dashboard.py
 
 ## Evaluation report 배치
 
-기본 탐색 위치는 프로젝트 `reports/` 하위의 `summary.json`이다. 별도 위치라면 탭의 `Report directory`에 지정한다. 검증된 report 폴더를 그대로 배치하고 생성 시각·source commit·repeats·total trials를 확인한다. 이번 QA의 임시 smoke 결과를 발표용 360-trial 결과로 대체하지 않는다.
+360-trial report는 Git repository에 commit하지 않는다. 발표 PC의 `reports/` 아래 검증된 threshold 0.80 report와 threshold 0.92 report를 각각 배치한다. 기본 탐색 대상은 하위 `summary.json`이다. 별도 위치라면 접힌 `발표 설정 / Report 경로` 안의 `Report directory`에 지정한다. 검증된 report 폴더를 그대로 배치하고 생성 시각·source commit·repeats·total trials를 확인한다. 임시 smoke 결과를 발표용 360-trial 결과로 대체하지 않는다.
 
 동일 폴더의 `summary.csv`, `rates.png`, `latency.png`를 재사용한다. PNG가 없어도 summary 표는 표시된다. Report가 없거나 잘못된 JSON이면 안내를 표시하며 Live 탭은 계속 사용할 수 있다. 수치는 summary에서 읽으며 UI가 재계산하지 않는다. 비율은 0–1, latency는 ms이다.
 
-재생성이 필요할 때만 다음 명령을 사용한다. 출력 디렉터리는 존재하지 않아야 한다. 기존 검증 결과가 있으면 다른 새 경로를 사용한다.
+발표는 검증된 report 배치를 기본으로 한다. 다음은 별도 재현이 필요할 때의 명령이며 이번 문서 정리에서는 실행하지 않는다. 출력 디렉터리는 존재하지 않아야 한다. 기존 검증 결과를 덮어쓰지 않는다.
 
 ```powershell
 uv run python -m scripts.run_runtime_evaluation --output-dir reports/runtime_080 --repeats 30 --seed 42 --block-threshold 0.80
@@ -71,53 +70,40 @@ uv run python -m scripts.run_runtime_evaluation --output-dir reports/runtime_092
 - ASR은 금지 send_email Tool 실행 기준이다. LLM 의미 품질이나 출력 유출 ASR을 평가한 결과가 아니다. 반복 seed는 현재 고정 fixture를 무작위 공격 표본으로 바꾸지 않는다.
 - inspection mode / STRICT 전환은 현재 Evidence에 저장되지 않는다. UI는 이를 추론하지 않는다. 최종 누적 위험과 정책 버전만 기록된 값으로 설명한다.
 - report 파일은 Git에 포함하지 않았다. 검증된 발표용 report의 별도 배치와 리허설이 필요하다.
-- PR #14는 미통합이다. [감사 기록](PLATFORM_API_AUDIT.md)을 참고한다. 발표에 API 서버는 필요하지 않다.
-- Windows sandbox에서 uv cache / pytest 임시 디렉터리 접근이 실패할 수 있다. 이번 baseline은 정상 권한에서 재실행해 확인했다. 권한 오류를 제품 실패나 성공으로 해석하지 않는다.
+- FastAPI thin boundary from PR #14 is deferred and excluded from the 10/29 presentation baseline. stale baseline, 구 0.99 정책, placeholder metrics, FastAPI / uvicorn / httpx 의존성을 그대로 가져오지 않는다. 현재 Streamlit Runtime / Evidence / Evaluation 경로가 발표 요구를 충족한다. PR #14는 close하지 않는다. [감사 기록](PLATFORM_API_AUDIT.md)을 참고한다.
+- Windows sandbox의 uv cache / pytest 임시 디렉터리 권한 오류는 과거 정상 권한 재실행으로 분리해 확인했다. 권한 오류를 제품 실패나 성공으로 해석하지 않는다.
 - 10/28에는 신규 개발 없이 이 순서로 리허설한다. 발표 전 두 탭, 세 버튼, report 경로와 생성 시각을 확인한다.
 
-## Plugin presentation QA (2026-10-27)
+## 최종 QA / presentation freeze 상태
 
-작업 branch: `feat/plugin-runtime-presentation`, base: `35ab29f3af936f268728cdfd1f1f5f9e76c2d413` (PR #20 merge). 이번 변경은 commit / push / merge하지 않았다.
+발표 baseline: **dev `6f2de1f3385d66d68ae9fa64047cd91c6b09a3e3`**. 아래는 문서 정리 전에 이미 확인된 최종 QA 기록이며, 이번 문서 전용 작업에서 새 공식 Evaluation을 생성하거나 테스트 로직을 바꾸지 않는다.
 
-| 검사 | 결과 |
+| 항목 | 최종 확인 상태 / 근거 |
 |---|---|
-| `uv sync --frozen --group demo` | 성공 |
-| `uv run --group demo pytest -q` | 259 passed |
-| `uv run --group demo ruff check .` | All checks passed |
-| `git diff --check` | 통과 |
-| 실제 Scenario 1 / 2 / 3 | ALLOW·Tool 1·출력 허용 / BLOCK·Tool 0·출력 차단 / BLOCK·Tool 1·출력 차단 |
-| Evidence | 세 시나리오 run_id / trace_id 일치, Runtime errors 없음 |
-| Replay | Reset·Next·자동 진행·종료·전체 결과·run 변경 초기화 통과; 추가 Runtime 호출 없음; 저장 Evidence 불변 |
-| 빈 상태 / 오류 | 실행 전 구조 표시, report 없음, Evidence 없음 시 persistence OK 미표시, ERROR/TIMEOUT 빨간 오류 표시 통과 |
-| Evaluation UI | PNG 없는 summary-only report 표시, B/C 비교, 실제 A/B/C Plugin 설정 검증 통과 |
+| Frozen 환경 / 전체 테스트 | `uv sync --frozen --group demo` 성공, **261 passed** |
+| Ruff / diff 검사 | All checks passed / `git diff --check` pass |
+| 세 Runtime 시나리오 | 정상 ALLOW·Tool 1·출력 전달 / 실행 전 BLOCK·Tool 0 / 실행 후 Tool 1·출력 차단 |
+| SQLite Evidence / ID | 실제 저장·run / trace 조회, run_id / trace_id 일치 |
+| A/B/C → Runtime → Evidence → Evaluation / Metrics | 연결 검증 완료; ASR / TSR / FPR / Block Rate 및 mean / p50 / p95 latency |
+| 360 Trial results | 팀 최종 QA 확인: baseline 0.80 / mechanism demonstration 0.92 각 180 trial; 검증 report 별도 배치 |
+| ERROR-001 | Tool Guard timeout → fail-closed BLOCK / execution_state BLOCKED / Tool 0; Runtime E2E verified |
+| Dashboard / Evidence Replay | AppTest 7개 포함; Replay 전후 Evidence 불변, Runtime 추가 호출 없음, 과거 run·report 조회 유지 |
+| Runtime / Enforcement blocker | 추가 blocker 없음 |
+| Freeze 판단 | 10/29 presentation freeze candidate |
 
-새 공식 실험을 생성하거나 기존 360-trial report를 덮어쓰지 않았다. AppTest report 입력은 임시 test fixture이며 발표 데이터가 아니다. 브라우저 연결이 없어 실제 화면의 시각 검수와 자동 타이머의 브라우저 재생 리허설은 미완료다. AppTest는 UI 상태 진행과 결과 불변성을 검증했다.
+ERROR-001 timeout 경로의 회귀 근거는 `tests/contract/test_runtime_connected.py::test_tool_guard_timeout_blocks_real_enforcement`다. SQLite / Evaluation / Replay의 근거 파일은 [Integration checklist](INTEGRATION_CHECKLIST.md)에 정리했다. Tool 실행 자체의 timeout / 취소와 프로세스 재시작을 넘는 exactly-once 보장은 완료 범위에 포함하지 않는다.
 
-변경 파일: `demo/dashboard.py`, `demo/plugin_view.py`, `demo/reports.py`, `tests/integration/test_plugin_dashboard.py`, 이 문서. Security / PluginManager / Guard / Runtime / Enforcement / Evidence schema / Evaluation metric / condition 정책 / threshold / Common schema / pyproject / lock은 변경하지 않았다.
+Replay 순서 조사에서는 기존 SQLite 8개 run 모두 `CREATED`가 처음, `COMPLETED`가 마지막이었다. repository 반환 순서도 일치했다. AppTest에서 초기 최종 화면은 `12/12 · COMPLETED`, 재생 첫 이벤트는 `1/12 · CREATED`였으며, 브라우저에서 보고된 `1/12 · COMPLETED` 현상은 재현되지 않아 원인을 확정하지 않았다. UI는 이벤트 번호·created_at·상태를 같은 저장 이벤트로 묶어 표시하고 Evidence를 재정렬하지 않는다.
 
-판단: 자동 검증 기준으로 dev 반영 후보에 적합하다. 실제 발표 환경에서 화면 밀도, Replay 동작과 검증된 report 경로를 확인한 후 반영한다.
+자동 검증 완료와 발표 PC 준비는 구분한다. 실제 화면의 시각 검수·자동 재생 리허설 및 검증된 report 배치 여부는 발표 PC에서 최종 확인한다. dev 자동 CI gate는 미완료이며 로컬 검증을 원격 CI 통과로 표현하지 않는다. 이는 신규 Runtime / Enforcement blocker를 의미하지 않는다.
 
-## PR #20 당시 QA 기록 (이력)
+## 병합 이력
 
-당시 기준 branch: `feat/presentation-dashboard`, base: `14c9ffec18dc4d9573354ebd11c47c944fb4ebdc` (PR #19 merge). 이후 사용자 승인으로 PR #20을 dev에 merge했다 (`35ab29f`). 아래 결과는 현재 Plugin presentation 변경 전의 이력이다.
-
-| 검사 | 결과 |
+| PR | dev 반영 내용 |
 |---|---|
-| 수정 전 `uv sync --frozen` | 정상 권한 재실행 성공; 최초 sandbox cache / network 오류는 환경 문제로 분리 |
-| 수정 전 pytest / Ruff | 251 passed / All checks passed |
-| 수정 후 `uv sync --frozen` | 성공 |
-| 수정 후 pytest / Ruff | 254 passed / All checks passed |
-| `git diff --check` | 통과 |
-| Scenario 1 | ALLOW, Tool 1회, output allowed, Evidence 12건 |
-| Scenario 2 | BLOCK, Tool 0회, output 차단, Evidence 9건 |
-| Scenario 3 | BLOCK, Tool 1회, output 차단, Evidence 12건 |
-| Evidence identity | 세 시나리오 모두 저장 run_id / trace_id 일치, Runtime errors 없음 |
-| Evaluation smoke | repeats=2, threshold 0.80 / 0.92 각각 12 trial completed, 합계 24; 기존 report 덮어쓰기 없음 |
-| Streamlit AppTest | 두 탭, 빈 실행 기록, report 없음, 세 실행 버튼, 새 run 자동 선택, 과거 run 선택, 실제 smoke report 두 표 표시 통과 |
-| Report helper | 없는 경로, 실패 / malformed JSON, PNG 없는 summary 표와 원본 값 보존 검증 |
+| #20 | Runtime 시나리오 직접 실행 / report 탭 / 발표 QA 가이드 |
+| #21 | Plugin 구조 / Cross-layer 설명 / 저장 Evidence Replay |
+| #22 | 시나리오 중심 제품 데모 UI / 접힌 과거 실행·상세 |
+| #23 | A Coordination N/A / 한국어 Replay 문구 / Report 경로 접힘 / 이벤트 표시 정합성 |
 
-Evaluation smoke 산출물은 이 PC 임시 경로 `C:\Users\jso25\AppData\Local\Temp\presentation-qa-bt085q2m`에 있다. 기본 `reports/` 탐색 밖이며 공식 발표 결과가 아니다. 최종 UI smoke 데이터는 `C:\Users\jso25\AppData\Local\Temp\dashboard-final-rhge5cz4`에 있다. 임시 검증 스크립트는 제거했다.
-
-최종 변경 파일은 `demo/dashboard.py`, `demo/reports.py`, `tests/unit/test_demo_reports.py`, 이 문서와 `docs/PLATFORM_API_AUDIT.md`다. generated Evidence / SQLite / report를 변경 파일에 포함하지 않았다. Security / Runtime / Enforcement / Evaluation metric / schema / threshold / pyproject / lock은 변경하지 않았다.
-
-판단: 테스트 기준으로 dev 반영 후보로 적합하다. 실제 브라우저 화면의 시각 검수와 검증된 360-trial 발표 report 배치·리허설은 완료로 간주하지 않는다. 이 확인 후 freeze 여부를 결정한다.
+이전 feature / fix branch와 임시 smoke 디렉터리는 개발·검증 이력이며 현재 발표 실행 기준이 아니다. PR #20–#23은 이미 dev merge 완료다. 이번 작업은 문서 정합성만 정리하며 source / Dashboard / 테스트를 변경하거나 dev / main에 push·merge하지 않는다.

@@ -2,7 +2,7 @@
 
 2026 이화여자대학교 졸업 프로젝트
 
-다단계 연계형 Guard와 latency-aware enforcement를 적용한 AI Agent 보안 미들웨어입니다.
+PluginManager 기반 Guard Plugin과 SecurityContext 기반 Cross-layer Coordination을 적용한 AI Agent 보안 미들웨어입니다.
 
 ## Team
 
@@ -15,23 +15,36 @@
 
 ## Current integration target
 
-현재 Sprint의 최소 통합 경로:
+10/29 발표 기준 통합 경로 (`dev`, freeze candidate `6f2de1f3385d66d68ae9fa64047cd91c6b09a3e3`):
 
 ```text
 Runtime
   → Security Orchestrator
+  → Plugin Manager
+  → Input / Context / Tool / Output Guard Plugins
+  → SecurityContext / Cross-layer Coordination
+  → SecurityDecision
   → Enforcement
-  → Evidence
+  → SQLite Evidence
+  → Evaluation / Metrics
+  → Presentation Dashboard
 ```
 
-Integration gate:
+위 구조는 구성 요소의 연결 관계입니다. Tool 실행 후 OUTPUT 검사로 사용자 출력 전달을 차단할 수 있으며, 실제 이벤트 순서는 저장 Evidence를 따릅니다. Dashboard는 별도 보안 로직이 없는 Presentation / Observability layer입니다.
 
-- 동일 `run_id` / `trace_id` 전파
-- BENIGN 경로 정상 완료
-- ATTACK 경로 BLOCK
-- BLOCK된 Tool 실제 실행 횟수 0
-- Guard timeout / error fallback 확인
-- Evidence 저장 및 조회 확인
+완료된 Integration gate:
+
+- [x] 동일 `run_id` / `trace_id` end-to-end 전파
+- [x] BENIGN ALLOW / EXECUTED / Tool 1회 / Output 전달
+- [x] Guard 적용 ATTACK BLOCK / Tool 실행 0회 / Output 차단
+- [x] Output-block 경로: Tool 1회 실행 후 사용자 출력 차단
+- [x] ERROR-001 Tool Guard timeout → fail-closed BLOCK / BLOCKED / Tool 0회, Runtime E2E 검증
+- [x] SQLite Evidence 저장 및 run / trace 조회
+- [x] A/B/C → Runtime → Evidence → Evaluation / Metrics 연결
+- [x] 총 360 Trial 결과 확인 (팀 최종 QA 확인; 검증된 report는 발표 PC에 별도 배치)
+- [x] Streamlit Dashboard / 저장 Evidence Replay 검증
+
+A = No Guard, B = Independent, C = Linked / Cross-layer입니다. 0.80은 baseline, 0.92는 mechanism demonstration이며 일반적인 성능 우위를 증명하지 않습니다. 실험은 Mock Tool과 BENIGN-001 / ATTACK-001 각 1종의 반복 실행으로, 전체 공격 환경의 최종 보안 성능으로 일반화하지 않습니다.
 
 ## Branch strategy
 
@@ -54,13 +67,28 @@ Recommended branches:
 - uv
 - pytest
 - Ruff
-- Thin FastAPI boundary
+- Streamlit Dashboard (`demo` dependency group)
+- SQLite Evidence / Mock Tools
 
-> 공통 `pyproject.toml` / `uv.lock` / shared models는 Fatin의 현재 baseline 이관 후 팀 기준으로 확정합니다.
+공통 baseline과 `pyproject.toml` / `uv.lock`은 `dev`에 통합되었으며 frozen 설치를 검증했습니다.
+
+공식 발표 실행은 `pyproject.toml`, `uv.lock`, `demo/`가 있는 최신 `dev` repository root에서 진행합니다.
+
+```bash
+git rev-parse --show-toplevel
+git branch --show-current
+git rev-parse HEAD
+uv sync --frozen --group demo
+uv run --group demo pytest -q
+uv run --group demo ruff check .
+uv run --group demo streamlit run demo/dashboard.py
+```
+
+FastAPI thin boundary from PR #14 is deferred and excluded from the 10/29 presentation baseline. FastAPI / uvicorn / httpx API 의존성은 현재 공식 발표 dependency에 추가하지 않습니다. 실행·report 배치는 [Presentation guide](docs/PRESENTATION_DEMO.md)를 참고하세요.
 
 ## Repository bootstrap
 
-현재 공용 레포에는 팀 코드 이관 전에 필요한 중립적인 운영 설정만 먼저 구성되어 있습니다.
+공용 레포에는 통합 코드와 다음 운영 설정이 반영되어 있습니다.
 
 - `.python-version`
 - `.gitignore`
@@ -73,11 +101,16 @@ Recommended branches:
 
 ## Integration order
 
-1. Fatin — Repository Skeleton / Common Contract / Security Core baseline
-2. Wana — Evidence / Evaluation 이관
-3. 이지원 — Runtime / Enforcement 이관
-4. 실제 Producer ↔ Consumer Interface 연결
-5. 오지송 — Thin API / CI / Contract / Integration Smoke / Release QA
+Common Contract / Security Core → Runtime / Enforcement → SQLite Evidence → Evaluation / Metrics 연결과 발표 Dashboard / Replay 통합을 완료했습니다. Thin API와 dev 자동 CI gate는 별도 후속 작업입니다.
+
+## Current validation
+
+- Freeze candidate `dev` HEAD: `6f2de1f3385d66d68ae9fa64047cd91c6b09a3e3` (PR #20–#23 merge 완료)
+- 최신 검증: **261 tests passed**, Ruff pass, `git diff --check` pass
+- Runtime / Evidence / Evaluation integration 및 세 Runtime 시나리오 회귀 검증 완료
+- Runtime / Enforcement 추가 blocker 없음; presentation freeze candidate
+
+검증 범위와 미완료 항목은 [Integration checklist](docs/INTEGRATION_CHECKLIST.md)에 구분합니다. 발표 PC의 검증된 report 배치와 리허설은 별도로 확인합니다. `main` release merge는 발표 후 별도 판단합니다.
 
 ## Project documents
 
@@ -86,15 +119,15 @@ Recommended branches:
 
 ## CI
 
-공통 `pyproject.toml`과 `uv.lock`이 `dev`에 반영된 뒤 아래 기준으로 CI를 활성화합니다.
+현재 `dev` 기준에는 GitHub Actions workflow 파일이 없고 dev 실행 기록도 확인되지 않았습니다. GitHub workflow registry에는 `CI`가 active로 남아 있으나, 이를 발표 baseline의 자동 CI 검증 완료로 취급하지 않습니다. 현재 검증 근거는 로컬 frozen 환경의 다음 명령입니다.
 
 ```bash
-uv sync --frozen
-uv run ruff check .
-uv run pytest -q
+uv sync --frozen --group demo
+uv run --group demo ruff check .
+uv run --group demo pytest -q
 ```
 
-실제 Runtime / Security / Evidence 연동 후 Cross-layer integration smoke를 추가합니다.
+Runtime / Security / Evidence Cross-layer smoke와 Dashboard AppTest는 기존 테스트에 포함되어 있습니다. dev 자동 CI gate 구성은 후속 작업입니다.
 
 
 ## Team onboarding
