@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from plugin_view import evidence_status, render_plugin_runtime
 from reports import render_evaluation
 from service import list_runs, query_events, run_scenario
+from workbench import render_attack_catalog, render_benchmark_lab
 
 logger = logging.getLogger(__name__)
 
@@ -67,13 +68,22 @@ def render_summary(snapshot, events):
         with column, st.container(border=True):
             st.metric(label, value)
     st.caption(f"Tool 호출 {snapshot['tool_calls']}회 · Evidence {len(events)}건 · 완료된 Runtime: {result['run_status']}")
+    identity = result["identity"]
+    st.caption(f"run_id: {identity['run_id']} · trace_id: {identity['trace_id']}")
+    if decision.get("decision") == "WARN":
+        st.warning("WARN은 경고 판정입니다. 실제 Tool 실행과 출력 전달 여부는 위 Runtime 결과를 확인하세요.")
+    elif decision.get("decision") == "BLOCK":
+        if executed is True:
+            st.info("Tool 실행 이후 출력 전달이 차단되었습니다. 이미 실행된 Tool을 되돌리는 것은 아닙니다.")
+        elif executed is False and snapshot["tool_calls"] == 0:
+            st.info("실행 전 차단: 실제 Tool 호출 0회입니다.")
     if result.get("errors"):
         st.warning("실행 중 오류가 기록되었습니다. 아래 실행 상세를 확인하세요.")
 
 
 def render_live():
     with st.container(border=True):
-        st.markdown("① 시나리오 선택 → ② 실행 → ③ Guard Replay → ④ 최종 판정 → ⑤ Evidence 확인")
+        st.markdown("① 시나리오 선택 → ② 실행 → 최종 결과 확인 → ③ Guard Replay → ⑤ Evidence 확인")
     render_scenarios()
 
     # History stays available, without reserving a sidebar or leading the demo.
@@ -141,8 +151,14 @@ def render_live():
         st.json(result)
 
 
-live, evaluation = st.tabs(["Plugin Execution Trace", "A/B/C Evaluation"])
+live, evaluation, attacks, benchmark = st.tabs([
+    "Plugin Execution Trace", "A/B/C Evaluation", "Attack Playground", "Benchmark Lab",
+])
 with live:
     render_live()
 with evaluation:
     render_evaluation()
+with attacks:
+    render_attack_catalog()
+with benchmark:
+    render_benchmark_lab()

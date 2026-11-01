@@ -37,7 +37,9 @@ def test_runtime_scenarios_replay_and_run_switch_preserve_evidence(dashboard):
     service, _, calls = dashboard
     at = AppTest.from_file(str(ROOT / "demo" / "dashboard.py"), default_timeout=30).run()
     assert not at.exception
-    assert [tab.label for tab in at.tabs] == ["Plugin Execution Trace", "A/B/C Evaluation"]
+    assert [tab.label for tab in at.tabs] == [
+        "Plugin Execution Trace", "A/B/C Evaluation", "Attack Playground", "Benchmark Lab",
+    ]
     assert any("Guard 실행 흐름" in sub.value for sub in at.subheader)
     assert not at.sidebar.selectbox
     assert not at.sidebar.button
@@ -217,3 +219,32 @@ def test_evidence_summary_requires_matching_payload_identity(dashboard):
     assert view.evidence_status(events, snapshot) == "저장 확인"
     events[0]["payload"]["trace_id"] = "different-trace"
     assert view.evidence_status(events, snapshot) == "확인 필요"
+
+
+def test_benchmark_pending_and_attack_catalog_do_not_execute_runtime(dashboard):
+    _, _, calls = dashboard
+    at = AppTest.from_file(str(ROOT / "demo" / "dashboard.py"), default_timeout=30).run()
+    assert not at.exception
+    assert calls == []
+    assert any(item.value == "평가 결과 준비 중" for item in at.info)
+    assert not at.tabs[3].metric
+    catalog = next(item.value for item in at.dataframe if "Attack ID" in item.value.columns)
+    assert len(catalog) == 9
+    assert "Encoded / Obfuscated Instruction" in catalog["공격 유형"].tolist()
+    assert sum("준비 중" in status for status in catalog["실행 / 검증 상태"]) == 7
+    assert [button.key for button in at.button if (button.key or "").startswith("scenario_")] == [
+        "scenario_1", "scenario_2", "scenario_3",
+    ]
+
+
+def test_warn_summary_uses_recorded_execution_and_output(dashboard, monkeypatch):
+    service, _, _ = dashboard
+    snapshot = service.run_scenario("1")
+    snapshot["result"]["decision"]["decision"] = "WARN"
+    snapshot["result"]["output_allowed"] = False
+    monkeypatch.setattr(service, "list_runs", lambda: [snapshot])
+    at = AppTest.from_file(str(ROOT / "demo" / "dashboard.py"), default_timeout=30).run()
+    assert not at.exception
+    assert [metric.value for metric in at.metric[:3]] == ["WARN", "실행됨", "차단"]
+    assert any("WARN은 경고 판정" in item.value for item in at.warning)
+    assert not any("실행 전 차단: 실제 Tool" in item.value for item in at.info)
