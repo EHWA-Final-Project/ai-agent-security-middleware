@@ -175,6 +175,8 @@ def render_pipeline(config, events, cursor):
                     st.write(f"Risk {payload['risk_score']:.3f}")
                 if payload.get("latency_ms") is not None:
                     st.caption(f"{payload['latency_ms']:.3f} ms")
+                if payload.get("reason"):
+                    st.caption(str(payload["reason"]))
     with st.expander("Cross-layer Coordination · 플러그인 구성과 데이터 출처", expanded=False):
         st.write("Linked mode에서는 앞 단계 Guard 결과가 SecurityContext에 누적되어 후속 판단에 반영됩니다.")
         st.caption(f"구조 설명 · 현재 코드 coordination: {config['mode']} · 선택 run의 저장 설정이 아닙니다.")
