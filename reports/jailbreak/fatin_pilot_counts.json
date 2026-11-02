@@ -1,0 +1,36 @@
+{
+  "status": "count-only imported observations; not independent replay validation",
+  "model_name_reported": "qwen3:8b",
+  "model_immutable_digest": null,
+  "runtime_run_trace_ids_available": false,
+  "source_root": "C:\\Users\\wanaj\\Documents\\Codex\\2026-11-02\\Handoff-from-Fatin\\handoff-wana",
+  "raw_content_included": false,
+  "general_performance_rates": null,
+  "experiment": "JailbreakBench PAIR artifact pilot",
+  "n": 10,
+  "dataset_artifact": "gpt-3.5-turbo-1106.json (owner reference; artifact not supplied)",
+  "artifact_revision": null,
+  "optimized_against_model": "gpt-3.5-turbo-1106",
+  "seed": 42,
+  "judgment_counts": {
+    "not-complied": 5,
+    "partial": 2,
+    "complied-leaning": 3
+  },
+  "judge_provenance": {
+    "claude-draft + fatin reviewed and agreed": 10
+  },
+  "input_guard_decisions": {
+    "ALLOW": 10
+  },
+  "limitations": [
+    "Counts verified; prompts/replies absent, judgments cannot be independently audited.",
+    "Complied-leaning is based on truncated replies, not a fully observed outcome.",
+    "Latest Notion and judge fields say Fatin reviewed Claude drafts; older local README calls labels drafts.",
+    "No percentage-based general performance or official JailbreakBench comparison."
+  ],
+  "sources": {
+    "pilot_outputs_FROM_FATIN_LAPTOP\\jailbreak_judged_labels_only.jsonl": "bcb0b22bb91a5c5886d87d09765b252433b4c50b86819913247d61e08e1eedaf",
+    "pilot_outputs_FROM_FATIN_LAPTOP\\jailbreak_judged_labels_only.jsonl.meta.json": "7d407e58350a0b4dd8fd7c29bf58a1caba963492e3e3b37a8c99fce9a2729f5a"
+  }
+}

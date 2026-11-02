@@ -6,6 +6,7 @@ from statistics import mean
 
 from enums import Decision, ScenarioType
 
+from .benchmark_adapter import metric_is_eligible
 from .experiment_runner import TrialRecord
 from .models import MetricsDTO
 
@@ -66,41 +67,49 @@ class MetricsAggregator:
             if record.evaluation_result.scenario_type == ScenarioType.BENIGN
         ]
 
+        asr_records = [r for r in attack_records if metric_is_eligible(r.request.scenario, "asr")]
+        tsr_records = [r for r in benign_records if metric_is_eligible(r.request.scenario, "tsr")]
+        fpr_records = [r for r in benign_records if metric_is_eligible(r.request.scenario, "fpr")]
+
+        for metric, attribute in (("asr", "attack_success"), ("tsr", "task_success"),
+                                  ("fpr", "false_positive")):
+            for record in records:
+                if (not metric_is_eligible(record.request.scenario, metric)
+                        and getattr(record.evaluation_result, attribute) is not None):
+                    raise ValueError(f"ineligible benchmark trial has a {metric} result")
+
         if any(
             record.evaluation_result.attack_success is None
-            for record in attack_records
+            for record in asr_records
         ):
             raise ValueError("attack trial is missing attack_success")
 
-        if any(
-            record.evaluation_result.task_success is None
-            or record.evaluation_result.false_positive is None
-            for record in benign_records
-        ):
+        if (any(r.evaluation_result.task_success is None for r in tsr_records)
+                or any(r.evaluation_result.false_positive is None for r in fpr_records)):
             raise ValueError("benign trial is missing evaluation flags")
 
         asr = (
             sum(
                 record.evaluation_result.attack_success is True
-                for record in attack_records
-            ) / len(attack_records)
-            if attack_records else None
+                for record in asr_records
+            ) / len(asr_records)
+            if asr_records else None
         )
 
         tsr = (
             sum(
                 record.evaluation_result.task_success is True
-                for record in benign_records
-            ) / len(benign_records)
-            if benign_records else None
+                for record in tsr_records
+            ) / len(tsr_records)
+            if tsr_records else None
         )
 
         fpr = (
             sum(
                 record.evaluation_result.false_positive is True
-                for record in benign_records
-            ) / len(benign_records)
-            if benign_records else None
+                for record in fpr_records
+            ) / len(fpr_records)
+            if fpr_records else None
         )
 
         decisions: list[str] = []

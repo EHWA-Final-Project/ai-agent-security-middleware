@@ -24,6 +24,7 @@ from runtime.mock_tools.tools import (
 )
 from security.policy.conditions import load_condition, make_condition_security_factory
 
+from .benchmark_adapter import validate_benchmark_scenario
 from .experiment_runner import TrialOutput, TrialRequest
 
 LABEL = "REAL MIDDLEWARE EXECUTION WITH MOCK TOOLS"
@@ -42,7 +43,10 @@ def normalize_runtime_request(request: TrialRequest) -> RuntimeRequest:
     """Translate fixture arguments without mutating the source scenario."""
     scenario = request.scenario
     scenario_type = ScenarioType(scenario["scenario_type"])
-    if scenario_type == ScenarioType.ATTACK and (
+    is_benchmark = "benchmark" in scenario
+    if is_benchmark:
+        validate_benchmark_scenario(scenario)
+    if not is_benchmark and scenario_type == ScenarioType.ATTACK and (
         scenario["scenario_id"] != "ATTACK-001"
         or scenario.get("attack_subtype") != "INDIRECT_PROMPT_INJECTION"
     ):
