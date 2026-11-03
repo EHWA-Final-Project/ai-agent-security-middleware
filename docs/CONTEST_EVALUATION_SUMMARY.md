@@ -78,4 +78,60 @@ uv run --group demo python -m scripts.plot_fatin_handoff --trials-csv "$FATIN_DI
 - **팀:** Guard 규칙 Freeze 시점과 Holdout 실행·최종 수치 확정 일정 조율
 - **라이선스:** Tensor Trust 데이터셋의 이용·재배포 조건이 명확하지 않음([관련 GitHub Issue](https://github.com/HumanCompatibleAI/tensor-trust-data/issues/3)). 원본 데이터·모델 응답·비공개 Prompt는 Git/슬라이드/포스터에 포함하지 않음
 
+## 6. Dashboard Evaluation 데이터 인계
+
+### 6-1. 현재 인계 상태
+
+- **Tuning:** Fatin 제공 원본 CSV 집계 검증 및 그래프 생성 완료
+- **Holdout:** 최종 결과 수신 및 검증 대기
+- **Dashboard 연동:** 기존 Tuning CSV/JSON 구조 검토 완료, 최종 Holdout 데이터 계약 및 Benchmark Lab 읽기 연동은 미완료
+
+기존 Evaluation 결과와 공개 Benchmark 기반 결과는 서로 다른 실험이므로 구분하여 제공한다. 검증되지 않은 지표는 0으로 대체하지 않는다.
+
+### 6-2. 데이터 및 파일 구조
+
+| 구분 | 파일 / 경로 | 용도 |
+|---|---|---|
+| Fatin 데이터 감사 | `audit_summary.json` | Tuning 집계 검증, 입력 해시, Dataset Manifest 및 검증 상태 |
+| 재집계 결과 | `recomputed_sweep.csv` | B/C Threshold별 재집계 결과 |
+| Guard 탐지 | `guard_detection.csv` | Dataset 및 Guard별 탐지 건수와 비율 |
+| Core Latency | `core_latency.csv` | Security Core 지연 시간 집계 |
+| 그래프 검증 정보 | `plot_audit.json` | Split, 입력 해시, 집계 결과 및 정상 send_email 실행 패턴 |
+| 그래프 | PNG/SVG | B/C 공격 Tool 실행률, Direct/Indirect 비교, 정상 WARN/BLOCK, Latency |
+| 별도 Benchmark Replay | `summary.json`, `summary.csv`, `trials.jsonl`, `trials.csv` | `contest-benchmark-v1` 형식의 독립 Mock Replay 실험 |
+
+실제 저장 경로는 실행 시 지정한 `--output` 디렉터리에 따라 결정되며, 최종 Holdout 산출물 경로는 검증 후 확정한다.
+
+### 6-3. Dashboard 데이터 계약
+
+Fatin 데이터 감사 결과인 `audit_summary.json`은 `imported-fatin-audit-v1` 형식을 사용하며, 현재 상태는 `arithmetic_audited`, `evidence_validated=false`이다.
+
+그래프용 `plot_audit.json`에는 `split`, `split_verification`, `toolpolicy`, `input_sha256`, `cells`, `benign_send_raw_patterns`가 포함된다.
+
+별도 Benchmark Replay Exporter는 `contest-benchmark-v1` 형식을 사용하며, 완료된 결과에 대해 `read_benchmark_summary()` 검증을 지원한다.
+
+현재 `demo/reports.py`는 기존 A/B/C Runtime Report 구조를 사용하고, `demo/workbench.py`의 Benchmark Lab은 데이터 연결 대기 상태이다. 따라서 Fatin 평가 결과와 Benchmark Replay 결과를 기존 Dashboard Report 형식으로 직접 대체하지 않는다.
+
+### 6-4. 지표 및 표시 주의사항
+
+- 공격 Tool 실행률과 실제 LLM Attack Success Rate(ASR)를 구분한다.
+- 정상 WARN과 BLOCK을 구분하고, Tool 실행 전 차단과 실행 후 Output 차단을 별도 집계한다.
+- 고유 Sample 수와 전체 Trial 수를 구분하고, 비율의 분자·분모를 함께 표시한다.
+- Latency는 Security Core 단독 측정과 Runtime E2E 측정을 혼합하지 않는다.
+- 실제 Agent/Jailbreak 파일럿은 별도 결과로 표시하며, 소규모 관측 결과를 일반적인 방어 성공률로 해석하지 않는다.
+- 원본 모델 응답 및 재배포 조건이 확인되지 않은 데이터는 공개 Dashboard/포스터에 포함하지 않는다.
+
+### 6-5. Holdout 수신 후 최종 인계
+
+Holdout 결과 수신 후 다음 항목을 검증하고 최종 경로와 함께 지송님·지원님께 전달할 예정이다.
+
+- Holdout 고유 Sample 수 및 Trial 수, 실패/제외 건수
+- Security Core Commit, Policy/Threshold 및 Dataset Split/Hash
+- B/C 최종 지표와 분자·분모, 공격 유형별 비교
+- 최종 CSV/JSON 파일 경로 및 필드 구조
+- 최종 PNG/SVG 그래프와 캡션, 실험 환경 및 한계
+- 독립적인 Runtime Evidence 확인 가능 범위
+
+**현재 상태:** Tuning 데이터 인계 준비 완료 / 최종 Holdout 데이터 및 Dashboard 통합 검증 대기
+
 **최종 결론:** 이번 PR은 **Tuning 기반 Evaluation 구현, 집계 검증, 문서 및 그래프 생성 기능**을 검토받기 위한 것입니다. **최종 Holdout 성능 또는 Fatin의 당시 Runtime 실행을 독립 검증 완료했다고 주장하지 않습니다.**
