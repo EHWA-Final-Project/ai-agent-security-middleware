@@ -131,10 +131,19 @@ def test_sanitized_output_is_separate():
 
 
 def test_warn_withholds_without_rewriting_execution():
-    r, _, _, email = run(request("send_email"))
+    r, ev, _, email = run(request("send_email"))
+
     assert r.decision.decision == Decision.WARN
-    assert r.execution.executed and email.call_count == 1
-    assert r.run_status == RunStatus.COMPLETED and not r.output_allowed
+
+    assert r.execution.execution_state == ExecutionState.EXECUTED
+    assert r.execution.executed is True
+    assert email.call_count == 1
+    assert len(email.outbox) == 1
+
+    assert r.run_status == RunStatus.COMPLETED
+    assert r.output_allowed is False
+
+    assert len(ev.items["execution"]) == 1
 
 
 @pytest.mark.parametrize(

@@ -188,6 +188,58 @@ def test_attack_runtime_security_evidence_flow(tmp_path):
         for event in scenario_events
     )
 
+def test_output_block_preserves_execution_in_sqlite(tmp_path):
+    repository = SQLiteEvidenceRepository(tmp_path / "evidence.db")
+    collector = EvidenceCollector(repository)
+    read_file = MockReadFile({"notes.txt": "API_KEY=synthetic-secret"})
+
+    request = RuntimeRequest(
+        user_input="Summarize the document.",
+        context_items=[],
+        session_id="session-evidence-output-block",
+        scenario_id="OUTPUT-BLOCK-001",
+        tool_request=ToolRequest(
+            tool_name="read_file",
+            tool_arguments={"path": "notes.txt"},
+        ),
+    )
+
+    result = RuntimeAdapter().run(
+        request,
+        tools={"read_file": read_file},
+        evidence=collector,
+        security_factory=make_security_factory(
+            PolicyConfig(policy_version="evidence-integration"),
+            collector,
+        ),
+    )
+
+    assert result.run_status == RunStatus.COMPLETED
+    assert result.decision.decision == Decision.BLOCK
+    assert result.execution.executed is True
+    assert read_file.call_count == 1
+    assert result.output_allowed is False
+    assert result.forward_output is None
+
+    events = repository.list_events_by_run(result.identity.run_id)
+
+    execution_events = [
+        event
+        for event in events
+        if event.event_type == "EXECUTION_RESULT"
+    ]
+
+    decision_events = [
+        event
+        for event in events
+        if event.event_type == "SECURITY_DECISION"
+    ]
+
+    assert execution_events
+    assert decision_events
+    assert execution_events[-1].payload["executed"] is True
+    assert execution_events[-1].payload["execution_state"] == "EXECUTED"
+    assert decision_events[-1].payload["decision"] == "BLOCK"
 
 def test_execution_without_matching_observation_is_preserved(
     tmp_path,
