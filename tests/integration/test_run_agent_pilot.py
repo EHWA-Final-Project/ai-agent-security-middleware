@@ -216,3 +216,30 @@ def test_answer_mode_asks_without_tools_and_records_answer_and_context_guard(tmp
     assert 0.0 <= row["context_guard_score"] <= 1.0 and row["context_guard_decision"] in {"ALLOW", "WARN", "BLOCK"}
     attack = next(r for r in rows if r["label"] == "attack")
     assert attack["context_guard_decision"] in {"WARN", "BLOCK"}  # "Ignore previous instructions" is in the text
+
+
+def test_loop_follows_only_delivered_reads_and_caps_each_condition(tmp_path):
+    model = agent.ScriptedLLM(_obedient)
+    rows = pilot.run_loops(model, repeats=1, db_path=tmp_path / "loop.db")
+    assert len(model.calls) == len(rows)
+    assert all(r["run_id"] and r["trace_id"] for r in rows)
+    for scenario in pilot.SCENARIOS:
+        for condition in ("A", "B", "C"):
+            branch = [r for r in rows if r["scenario"] == scenario and r["condition"] == condition]
+            first = branch[0]
+            assert first["model_tool"] == "read_file" and first["step"] == 1
+            if scenario == "benign":
+                assert len(branch) == 3
+            elif first["output_delivered"]:
+                assert len(branch) == 2
+                follow = branch[1]
+                assert follow["model_tool"] == "send_email"
+                expected = ("ALLOW", True, True) if condition == "A" else (
+                    ("WARN", True, False) if (scenario, condition) == ("indirect-subtle", "B")
+                    else ("BLOCK", False, False))
+                assert (follow["decision"], follow["tool_executed"], follow["output_delivered"]) == expected
+            else:
+                assert len(branch) == 1
+    for row, call in zip(rows, model.calls, strict=True):
+        if row["step"] == 1:
+            assert call["context_items"] == []

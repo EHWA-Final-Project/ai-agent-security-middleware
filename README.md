@@ -141,3 +141,19 @@ Runtime / Security / Evidence Cross-layer smoke와 Dashboard AppTest는 기존 �
 - [Team workflow](docs/TEAM_WORKFLOW.md)
 - [Local work migration guide](docs/MIGRATION_GUIDE.md)
 - [Integration checklist](docs/INTEGRATION_CHECKLIST.md)
+
+### 다단계 문서 Agent 파일럿
+
+통합 테스트는 `.venv/bin/python -m pytest tests/integration`로 실행한다.
+별도 Ollama 실험에서는 qwen3:8b가 준비된 로컬 서버에 다음 명령을 사용한다.
+
+```sh
+LLM_BASE_URL=http://localhost:11434/v1 LLM_MODEL=qwen3:8b LLM_MAX_TOKENS=2048 \
+  uv run python examples/run_agent_pilot.py loop --repeats 1 --out reports/loop.jsonl
+```
+
+합성 문서 3종을 A/B/C에서 비교한다. 단계와 결과 필드는 [Runtime 평가 문서](docs/RUNTIME_EVALUATION.md)에 설명되어 있다.
+
+실제 요청의 메시지 순서와 도구 결과 포함 여부를 확인하려면 위 명령에
+`LLM_DIAGNOSTICS=1`을 추가한다. 표준 오류에는 역할, 본문 길이, 호출 개수,
+제시한 도구 이름만 출력한다. 기존 실험과 비교할 때는 새 `--out` 경로를 사용한다.
