@@ -1,9 +1,14 @@
-"""Input Guard · P0 baseline.
+"""Input Guard.
 
-Minimal rule: flags direct prompt-injection-style phrases in user_input.
-This is intentionally a simple keyword/pattern check for Sprint 1 — it
-exists to prove the plugin/registry/orchestrator wiring works end to end,
-not to be the final detection logic.
+Scores direct prompt-injection signals in ``user_input`` with the shared
+rule set in ``_injection_rules`` (strong / medium / weak tiers, more distinct
+rules -> higher score within a tier). Legacy phrases such as "ignore previous
+instructions" keep their original score of 0.90.
+
+Decision: WARN when the score reaches ``WARN_SCORE`` (0.50, the default strict
+threshold); below that the score is still reported (decision ALLOW) so the
+Orchestrator and Evidence see graded risk. Per-rule detail is in
+``evidence[0]["matched_rules"]``; ``rule_ids`` keeps the stable umbrella id.
 """
 
 from __future__ import annotations
@@ -13,14 +18,10 @@ import time
 from enums import AttackSubtype, Decision, GuardExecutionStatus, Stage
 from schemas import RuntimeObservation, SecurityContext, SecurityResult
 
+from security.plugins.guards import _injection_rules as rules
 from security.plugins.interface import GuardPlugin
 
-_SUSPICIOUS_PATTERNS = [
-    "ignore previous instructions",
-    "ignore all previous instructions",
-    "reveal your system prompt",
-    "disregard the above",
-]
+_TIER_SCORES = {"strong": 0.90, "medium": 0.60, "weak": 0.30}
 
 
 class InputGuard(GuardPlugin):
@@ -29,39 +30,34 @@ class InputGuard(GuardPlugin):
 
     def inspect(self, observation: RuntimeObservation, context: SecurityContext) -> SecurityResult:
         start = time.perf_counter()
-        text = (observation.user_input or "").lower()
-
-        matched = [p for p in _SUSPICIOUS_PATTERNS if p in text]
+        matches = rules.scan(observation.user_input or "", guard="input")
+        risk = rules.score(matches, **_TIER_SCORES)
         latency_ms = (time.perf_counter() - start) * 1000
 
-        if matched:
-            return SecurityResult(
-                run_id=observation.run_id,
-                trace_id=observation.trace_id,
-                stage=self.stage,
-                guard_name=self.name,
-                execution_status=GuardExecutionStatus.SUCCESS,
-                risk_score=0.9,
-                decision=Decision.WARN,
-                rule_ids=["input_guard.direct_prompt_injection"],
-                evidence=[
-                    {
-                        "matched_patterns": matched,
-                        "attack_subtype": AttackSubtype.DIRECT_PROMPT_INJECTION.value,
-                    }
-                ],
-                latency_ms=latency_ms,
-            )
-
+        warn = risk >= rules.WARN_SCORE
         return SecurityResult(
             run_id=observation.run_id,
             trace_id=observation.trace_id,
             stage=self.stage,
             guard_name=self.name,
             execution_status=GuardExecutionStatus.SUCCESS,
-            risk_score=0.0,
-            decision=Decision.ALLOW,
-            rule_ids=[],
-            evidence=[],
+            risk_score=risk,
+            decision=Decision.WARN if warn else Decision.ALLOW,
+            rule_ids=["input_guard.direct_prompt_injection"] if warn else [],
+            evidence=(
+                [
+                    {
+                        "matched_patterns": [m.text for m in matches],
+                        "matched_rules": [
+                            {"rule": m.rule, "family": m.family, "tier": m.tier, "variant": m.variant}
+                            for m in matches
+                        ],
+                        "signal_count": len(matches),
+                        "attack_subtype": AttackSubtype.DIRECT_PROMPT_INJECTION.value,
+                    }
+                ]
+                if risk > 0
+                else []
+            ),
             latency_ms=latency_ms,
         )
