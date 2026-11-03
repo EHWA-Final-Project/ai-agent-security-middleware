@@ -121,3 +121,72 @@ def test_other_sensitive_tools_never_downgrade(tool):
     guard = ToolGuard(ToolPolicy(allowed_tools=frozenset({tool}), allowed_recipient_domains=frozenset({"corp.com"}),
                                  allowed_path_prefixes=("tmp",)))
     assert _inspect(guard, tool, amount=5).decision == Decision.WARN
+
+
+# --- Runtime/Adapter 리뷰 반영: 수신자 목록, 인자 검증, 합계 제한
+_SCOPED_MAIL = ToolPolicy(allowed_tools=frozenset({"send_email"}), allowed_recipient_domains=frozenset({"corp.com"}))
+_SCOPED_DELETE = ToolPolicy(allowed_tools=frozenset({"delete_file"}), allowed_path_prefixes=("tmp",))
+
+
+@pytest.mark.parametrize("to", [
+    ["a@corp.com, leak@evil.com"],
+    ["a@corp.com; leak@evil.com"],
+    "a@corp.com, leak@evil.com",
+    ["a@corp.com", "b@corp.com,leak@evil.com"],
+])
+def test_every_address_inside_a_recipient_entry_is_checked(to):
+    r = _inspect(ToolGuard(_SCOPED_MAIL), "send_email", to=to)
+    assert r.decision == Decision.BLOCK and r.rule_ids == ["tool_guard.recipient_not_allowed"]
+    assert r.evidence[0]["rejected"] == ["leak@evil.com"]
+
+
+def test_all_recipient_fields_are_checked_not_just_to():
+    guard = ToolGuard(_SCOPED_MAIL)
+    for field in ("cc", "bcc", "recipients"):
+        r = _inspect(guard, "send_email", to=["a@corp.com"], **{field: ["leak@evil.com"]})
+        assert r.decision == Decision.BLOCK and r.evidence[0]["argument"] == field
+
+
+def test_max_recipients_counts_to_cc_bcc_together():
+    guard = ToolGuard(ToolPolicy(max_recipients=2))
+    assert _inspect(guard, "send_email", to=["a@x.com", "b@x.com"]).decision == Decision.WARN  # 한도와 같음
+    r = _inspect(guard, "send_email", to=["a@x.com"], cc=["b@x.com"], bcc=["c@x.com"])
+    assert r.decision == Decision.BLOCK and r.rule_ids == ["tool_guard.too_many_recipients"]
+    assert r.evidence[0]["count"] == 3 and r.evidence[0]["limit"] == 2
+
+
+@pytest.mark.parametrize("args", [
+    {},                          # 필수 인자 없음
+    {"to": []},
+    {"to": ""},
+    {"cc": ["a@corp.com"]},      # cc만 있고 주 수신자 없음
+    {"to": 123},                 # 잘못된 타입
+    {"to": [123]},
+    {"to": {"a@corp.com": 1}},
+    {"to": ["a@corp.com"], "cc": 5},
+])
+def test_malformed_send_email_is_never_in_policy(args):
+    r = _inspect(ToolGuard(_SCOPED_MAIL), "send_email", **args)
+    assert r.decision == Decision.BLOCK and r.rule_ids == ["tool_guard.invalid_arguments"]
+    assert not any(e.get("in_policy") for e in r.evidence)
+
+
+@pytest.mark.parametrize("args", [{}, {"path": ""}, {"path": "  "}, {"path": 7}, {"path": ["tmp/a.txt"]}, {"path": None}])
+def test_malformed_delete_file_is_never_in_policy(args):
+    r = _inspect(ToolGuard(_SCOPED_DELETE), "delete_file", **args)
+    # 빈 경로는 범위 밖으로, 나머지는 형식 오류로 거부된다. 어느 쪽이든 BLOCK이다
+    assert r.decision == Decision.BLOCK
+    assert r.rule_ids in (["tool_guard.invalid_arguments"], ["tool_guard.path_outside_scope"])
+    assert not any(e.get("in_policy") for e in r.evidence)
+
+
+def test_well_formed_calls_are_still_in_policy():
+    ok = _inspect(ToolGuard(_SCOPED_MAIL), "send_email", to=["a@corp.com"], cc="b@corp.com")
+    assert ok.decision == Decision.ALLOW and ok.evidence == [{"tool_name": "send_email", "in_policy": True}]
+    assert _inspect(ToolGuard(_SCOPED_DELETE), "delete_file", path="tmp/a.txt").decision == Decision.ALLOW
+
+
+def test_default_guard_ignores_argument_shape():
+    # 정책이 없으면 형식이 잘못된 인자여도 기존 동작(WARN)이 그대로이다.
+    r = _inspect(ToolGuard(), "send_email", to=123)
+    assert r.decision == Decision.WARN and r.risk_score == 0.6

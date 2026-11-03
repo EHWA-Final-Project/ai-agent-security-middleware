@@ -1,32 +1,31 @@
 """Tool Guard.
 
-This guard only ever runs when observation.tool_candidate is present,
-since the Orchestrator does not include Stage.TOOL in a no-tool turn.
+``observation.tool_candidate``가 있을 때만 실행된다(Tool 호출이 없는 턴에는
+Orchestrator가 Stage.TOOL을 넣지 않는다).
 
-Default (``ToolGuard()``): unchanged baseline. A call to one of the sensitive
-tools returns WARN with risk 0.6; every other tool is ALLOW.
+기본(``ToolGuard()``): 기존 동작 그대로이다. 민감 Tool 호출은 WARN(위험 0.6),
+그 외 Tool은 ALLOW이다.
 
-Optional ``ToolPolicy`` (constructor argument, no config-schema change): adds
-hard checks that return BLOCK with risk 0.95 *before* the tool runs, because
-leaving the allowlist or the argument scope is a policy violation, not a
-probabilistic estimate:
+선택 ``ToolPolicy``(생성자 인자, 설정 스키마 변경 없음): Tool 실행 **전에** BLOCK
+(위험 0.95)을 반환하는 검사를 추가한다. allowlist나 인자 범위를 벗어나는 것은
+확률 추정이 아니라 정책 위반이기 때문이다.
 
-* ``allowed_tools``            - tool not on the allowlist (TL-U01)
-* ``allowed_recipient_domains``- recipient outside the allowed domains (TL-A01 / TL-X01)
-* ``max_recipients``           - too many recipients in one call
-* ``allowed_path_prefixes``    - path argument outside the allowed prefixes (TL-A01)
-* path traversal (``..``, ``~``, null byte, URL scheme) whenever ``check_path_traversal``
+* ``allowed_tools``             - allowlist에 없는 Tool (TL-U01)
+* ``allowed_recipient_domains`` - 허용 도메인 밖의 수신자 (TL-A01 / TL-X01)
+* ``max_recipients``            - 한 번에 너무 많은 수신자 (to + cc + bcc 합계 기준)
+* 인자 형식 오류                 - 잘못된 타입, 또는 범위 안 호출에서 필수 인자 누락
+* ``allowed_path_prefixes``     - 허용 prefix 밖의 경로 (TL-A01)
+* 경로 우회(``..``, ``~``, null 바이트, URL 스킴): ``check_path_traversal``이 켜져 있으면 검사
 
-In-scope calls: when a policy explicitly authorises a sensitive tool *and* sets
-the scope that tool needs, a call that passes every check returns ALLOW instead
-of the baseline WARN (an authorised, in-scope call is not suspicious):
+범위 안의 호출: 정책이 민감 Tool을 명시적으로 허용하고 그 Tool에 필요한 범위도
+설정했으며 모든 검사를 통과하면, 기본 WARN 대신 ALLOW를 반환한다.
 
-* ``send_email``  - tool in ``allowed_tools`` and ``allowed_recipient_domains`` set
-* ``delete_file`` - tool in ``allowed_tools`` and ``allowed_path_prefixes`` set
-* ``transfer_funds`` / ``execute_code`` always stay WARN.
+* ``send_email``  - ``allowed_tools``와 ``allowed_recipient_domains`` 설정 필요
+* ``delete_file`` - ``allowed_tools``와 ``allowed_path_prefixes`` 설정 필요
+* ``transfer_funds`` / ``execute_code``는 항상 WARN을 유지한다.
 
-A candidate dict from the Runtime carries ``tool_arguments``; the shared
-fixtures use ``args``. Both are read.
+Runtime의 candidate dict는 ``tool_arguments``를, 공용 fixture는 ``args``를 쓰며
+둘 다 읽는다.
 """
 
 from __future__ import annotations
@@ -71,12 +70,27 @@ def _arguments(candidate: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def _recipients(value: Any) -> list[str]:
+def _split_addresses(text: str) -> list[str]:
+    return [p.strip() for p in text.replace(";", ",").split(",") if p.strip()]
+
+
+def _recipients(value: Any) -> list[str] | None:
+    """값 안의 모든 주소를 하나씩 반환한다. 타입이 잘못되면 ``None``.
+
+    리스트의 한 원소에 여러 주소가 들어 있을 수 있다("a@x.com, b@y.com").
+    원소도 쉼표·세미콜론으로 나눠야 허용되지 않은 도메인이 한 원소 안에
+    숨어 검증을 우회하지 못한다.
+    """
     if isinstance(value, str):
-        return [p for p in value.replace(";", ",").split(",") if p.strip()]
+        return _split_addresses(value)
     if isinstance(value, (list, tuple, set)):
-        return [str(v) for v in value if str(v).strip()]
-    return []
+        out: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                return None
+            out.extend(_split_addresses(item))
+        return out
+    return None
 
 
 def _domain(address: str) -> str:
@@ -142,24 +156,38 @@ class ToolGuard(GuardPlugin):
             return self._violation(observation, start, "tool_guard.unauthorized_tool", tool_name,
                                    allowed_tools=sorted(policy.allowed_tools))
 
-        for key in _RECIPIENT_ARGS:
-            if key not in args:
-                continue
-            recipients = _recipients(args[key])
-            if policy.max_recipients is not None and len(recipients) > policy.max_recipients:
+        checks_recipients = policy.max_recipients is not None or policy.allowed_recipient_domains is not None
+        if checks_recipients:
+            per_key: dict[str, list[str]] = {}
+            for key in _RECIPIENT_ARGS:
+                if key not in args:
+                    continue
+                recipients = _recipients(args[key])
+                if recipients is None:
+                    return self._violation(observation, start, "tool_guard.invalid_arguments", tool_name,
+                                           argument=key, reason="wrong type")
+                per_key[key] = recipients
+
+            # 제한은 필드별이 아니라 to + cc + bcc(+ recipients) 합계에 건다.
+            total = sum(len(v) for v in per_key.values())
+            if policy.max_recipients is not None and total > policy.max_recipients:
                 return self._violation(observation, start, "tool_guard.too_many_recipients", tool_name,
-                                       argument=key, count=len(recipients))
+                                       count=total, limit=policy.max_recipients)
             if policy.allowed_recipient_domains is not None:
                 allowed = {d.casefold() for d in policy.allowed_recipient_domains}
-                bad = [r[:80] for r in recipients if _domain(r) not in allowed]
-                if bad:
-                    return self._violation(observation, start, "tool_guard.recipient_not_allowed", tool_name,
-                                           argument=key, rejected=bad)
+                for key, recipients in per_key.items():
+                    bad = [r[:80] for r in recipients if _domain(r) not in allowed]
+                    if bad:
+                        return self._violation(observation, start, "tool_guard.recipient_not_allowed", tool_name,
+                                               argument=key, rejected=bad)
 
         for key in _PATH_ARGS:
-            value = args.get(key)
-            if not isinstance(value, str):
+            if key not in args:
                 continue
+            value = args[key]
+            if not isinstance(value, str):
+                return self._violation(observation, start, "tool_guard.invalid_arguments", tool_name,
+                                       argument=key, reason="wrong type")
             if policy.check_path_traversal:
                 reason = _traversal_reason(value)
                 if reason:
@@ -181,6 +209,21 @@ class ToolGuard(GuardPlugin):
             return policy.allowed_path_prefixes is not None
         return False
 
+    @staticmethod
+    def _missing_required(tool_name: str | None, args: dict[str, Any]) -> str | None:
+        """범위 안 호출에서 빠진 필수 인자 이름, 없으면 None.
+
+        잘못된 타입은 ``_policy_violation``에서 이미 걸러진다. 여기서는
+        인자가 없거나 비어 있는 경우를 잡아 ``in_policy``로 처리되지 않게 한다.
+        """
+        if tool_name == "send_email":
+            has_to = any(_recipients(args.get(k)) for k in ("to", "recipients"))
+            return None if has_to else "to"
+        if tool_name == "delete_file":
+            has_path = any(isinstance(args.get(k), str) and args[k].strip() for k in _PATH_ARGS)
+            return None if has_path else "path"
+        return None
+
     def inspect(self, observation: RuntimeObservation, context: SecurityContext) -> SecurityResult:
         start = time.perf_counter()
 
@@ -192,6 +235,10 @@ class ToolGuard(GuardPlugin):
             return violation
 
         if tool_name in _SENSITIVE_TOOLS and self._authorised_in_scope(tool_name):
+            missing = self._missing_required(tool_name, _arguments(tool_candidate))
+            if missing is not None:
+                return self._violation(observation, start, "tool_guard.invalid_arguments", tool_name,
+                                       argument=missing, reason="missing required argument")
             return self._result(
                 observation, start, risk=0.0, decision=Decision.ALLOW,
                 evidence=[{"tool_name": tool_name, "in_policy": True}],
