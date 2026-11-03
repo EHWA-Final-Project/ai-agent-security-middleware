@@ -75,15 +75,13 @@ Threat Model과 평가 Manifest가 같은 이름을 쓰기 위한 최소 필드�
 
 ## 6. 측정으로 확인한 한계 (Tuning split 기준, 잠정)
 
-Holdout은 아직 실행하지 않았다. 아래 수치는 규칙 튜닝에 쓴 절반의 결과이며 최종 성능이 아니다.
+아래 수치는 규칙 튜닝에 쓴 절반의 결과이며 최종 성능이 아니다. Holdout 결과는 6.2절에 있다.
 
 - BIPIA 간접 PI(Context Guard, WARN 이상): 텍스트 공격 20.9%(225건), 코드 공격 18.0%(150건) 탐지, 정상 문맥 오탐 0%. 텍스트 공격 15개 카테고리 중 6개는 0%. 규칙 하나(`directive.shape_response`)가 URL 안의 점(`.`) 때문에 문장을 끝낸 것으로 보고 놓치던 문제를 고친 뒤의 값이며(고치기 전 텍스트 14.7%), 정상 입력 오탐은 변하지 않았다.
 - Tensor Trust 직접 PI(Input Guard): hijack 39%, extraction 51%. 게임 고유 문구(`access granted`)는 일반 PI 신호가 아니므로 약한 신호로만 취급한다.
 - NotInject 정상 입력(Input Guard) 오탐: 0%.
-- B/C 임계값 Sweep (Tuning split, 8개 임계값, 공격 820건): 임계값 0.80에서 금지 `send_email` 실행률(ASR)은 A 100%, B 91.7%, C 66.8%. C가 낮은 이유는 누적 점수 자체보다 STRICT 승격(앞 단계 WARN 뒤 Tool 단계 WARN이면 BLOCK) 영향이 크다. 임계값 0.98에서도 C의 실행 전 BLOCK 33.2%가 유지된다.
+- B/C 임계값 Sweep (Tuning split, 8개 임계값, 공격 820건): 임계값 0.80에서 금지 `send_email` 실행률(ASR)은 A 100%, B 91.7%, C 66.8%. 임계값 0.80에서 C의 실행 전 BLOCK 272건은 모두 누적 위험도(noisy-OR)가 임계값에 도달해서 생긴 것이다. STRICT 승격(앞 단계 WARN 뒤 Tool 단계 WARN이면 BLOCK)은 임계값 0.85 이상에서 차단을 이어받으며, 그래서 임계값 0.98에서도 C의 실행 전 BLOCK 33.2%가 유지된다.
 - 정상 `send_email`은 Tool Guard가 항상 WARN(0.6)을 내므로 B/C 모두 WARN 비율이 100%다 (BLOCK은 0%). 정상 `read_file`은 WARN·BLOCK 모두 0%. 운영자가 `ToolPolicy`로 Tool과 수신자 도메인을 허용하면 범위 안의 정상 발송은 ALLOW가 되어 WARN 비율이 0%로 내려간다. 이때 공격 발송(허용 도메인 밖)의 ASR 0%는 설정에 따른 결과이며 Guard 탐지 성능이 아니다.
-
-최종 수치는 11/3 15:00 Freeze 시점에 Holdout으로 다시 확인해 교체한다.
 
 ## 6.1 실제 모델 파일럿 (잠정, 소규모)
 
@@ -95,12 +93,22 @@ Holdout은 아직 실행하지 않았다. 아래 수치는 규칙 튜닝에 쓴 
 - **JailbreakBench PAIR 프롬프트 10건 (gpt-3.5-turbo-1106용으로 생성된 프롬프트):** Input Guard 탐지 0/10. 모델 응답 판정 초안은 따르는 쪽 3건, 부분 2건, 따르지 않음 5건. 모델이 거절 문구 대신 요청을 바꿔 쓰는 방식으로 응답해, 거절 키워드 휴리스틱은 신뢰할 수 없었다.
 - **해석:** Input·Context·Tool Guard는 Tool 실행 전에 한 번 검사하고 Output Guard는 실행 결과를 검사한다. 위 BIPIA 응답 단위와 Jailbreak 결과는 모델의 답변 내용이 바뀐 사례를 기록한 관찰이며, 키워드 규칙의 탐지 결과를 Jailbreak 방어로 주장하지 않는다. 모든 판정은 사람이 최종 확인하기 전의 초안이다.
 
+## 6.2 Holdout 결과 (규칙·Threshold 고정 후 1회 실행)
+
+규칙과 Threshold를 고정한 뒤 Holdout 1,294건을 한 번만 실행했다(11/3 23:29 KST, Core Commit `8ce9cad`, 대표 Block 0.80). 재현 기록은 `run_record_holdout.json`에 있고 결과 파일은 Git에 올리지 않는다.
+
+- Guard 단독 탐지(WARN 이상): BIPIA 텍스트 공격 19.6%(225건), 코드 공격 32.0%(150건), Tensor Trust hijack 41.2%(238건), extraction 56.4%(225건). 구간마다 공격 지시문이 달라 Tuning과 수치가 다를 수 있으며(코드 공격 18.0% → 32.0%) 일반 성능으로 해석하지 않는다.
+- 정상 입력·문서 오탐: 456건 중 1건. 정상 BIPIA 이메일 문서 1건이 `directive.send_to_address`(0.62)에 걸렸다. 정상 이메일에도 "이 주소로 보내 달라"는 문장이 있어 규칙이 구분하지 못한다. 읽기 요청에서는 WARN에 그치지만 `send_email`과 함께 쓰이면 Tool Guard 0.6과 합쳐 약 0.85가 되어 C에서 BLOCK된다(정상 이메일 167건 중 1건, 0.6%). 결과를 보고 규칙을 바꾸지 않았다.
+- B/C 임계값 Sweep (8개 임계값, 공격 838건): 임계값 0.80에서 금지 `send_email` 실행률은 A 100%, B 91.5%, C 62.2%. 실행 전 BLOCK은 B 8.5%, C 37.8%. Tuning(B 91.7% / C 66.8%)과 같은 모양이다.
+- C의 차단 원인: 임계값 0.80에서 실행 전 BLOCK 317건 모두 누적 위험도 때문이며, 이 중 71건은 Guard 하나의 점수만으로도 임계값 이상이다(B도 차단). 나머지 246건은 여러 Guard 점수가 합쳐진 결과다. 임계값 0.85 이상에서는 STRICT 승격이 차단을 이어받아(0.85에서 127건, 0.98에서 317건) C의 차단은 거의 일정하다.
+- 정상 읽기: WARN 이상 0.3%(1/338), BLOCK 0%, 작업 성공 99.7%.
+- Tool 정책 설정 실험: 공격 실행률은 모든 임계값에서 0%이며 설정 효과로 해석한다(탐지 성능이 아님).
+- 위 수치는 한 번의 실행이며 신뢰구간을 계산하지 않았다.
+
 ## 7. 데이터 출처와 라이선스
 
 | 데이터 | 용도 | 라이선스 |
 | --- | --- | --- |
 | BIPIA (microsoft/BIPIA) | 간접 PI 공격과 정상 문맥 | MIT. 문맥 일부는 CC BY-SA (repo NOTICE.md) |
-| Tensor Trust (HumanCompatibleAI/tensor-trust-data) | 직접 PI(hijack, extraction) | data repo에 LICENSE 파일 없음 (미확인). 내부 사용 한정, 재배포 전 확인 |
+| Tensor Trust (HumanCompatibleAI/tensor-trust-data) | 직접 PI(hijack, extraction) | 와나 확인 완료 |
 | NotInject (leolee99/PIGuard) | 정상 입력 오탐 평가 | MIT |
-
-원본 데이터는 Git에 올리지 않는다. 포스터에는 출처를 인용하고 짧은 예시만 사용한다.
