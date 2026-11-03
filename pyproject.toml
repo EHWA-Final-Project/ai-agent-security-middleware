@@ -19,5 +19,5 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "shared"]
+pythonpath = [".", "src", "shared"]
 testpaths = ["tests"]
