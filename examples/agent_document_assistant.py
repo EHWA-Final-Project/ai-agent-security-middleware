@@ -56,6 +56,7 @@ class LLMReply:
     model: str = ""  # recorded for every real-model result (provider/model/version)
 
     tool_call_id: str = ""
+    diagnostics: dict[str, Any] | None = None
 
 
 class AgentLLM(Protocol):

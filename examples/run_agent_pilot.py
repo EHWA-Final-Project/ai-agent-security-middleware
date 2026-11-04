@@ -209,7 +209,8 @@ def run_loops(llm, *, repeats: int, db_path: Path, scenarios=SCENARIOS) -> list[
                         call = run.reply.tool_call
                         rows.append({**base, "step": step, "model": run.reply.model,
                                      "model_tool": call.tool_name if call else None,
-                                     "model_text": run.reply.text[:500], "decision": run.decision,
+                                     "model_text": None if getattr(llm, "diagnostics", False) else run.reply.text[:500],
+                                     "response_diagnostics": run.reply.diagnostics, "decision": run.decision,
                                      "tool_executed": run.tool_executed, "output_delivered": run.output_delivered,
                                      "run_id": identity.run_id if identity else None,
                                      "trace_id": identity.trace_id if identity else None})

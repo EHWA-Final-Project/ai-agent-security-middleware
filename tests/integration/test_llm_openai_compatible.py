@@ -179,3 +179,22 @@ def test_loop_sends_linked_tool_result(server, tmp_path, capsys, condition, atta
     logs = capsys.readouterr().err
     assert '"role": "tool"' in logs
     assert all(secret not in logs for secret in ("secret-key", "private-call-id", "notes.txt", content, "attacker@"))
+
+
+def test_response_diagnostics_count_raw_calls_without_logging_contents(server, capsys):
+    _Handler.reply = {"model": "reported", "usage": {"prompt_tokens": 9, "completion_tokens": 11},
+                      "choices": [{"finish_reason": "tool_calls", "message": {
+                          "content": "private answer", "reasoning": "private reasoning", "tool_calls": [
+                              {"function": {"name": name, "arguments": '{"body":"private argument"}'}}
+                              for name in ("send_email", "read_file")]}}]}
+    llm = client.OpenAICompatibleLLM(server, "requested", api_key="private key", diagnostics=True)
+    metrics = llm.decide("system", "private document", [], agent.TOOL_SPECS).diagnostics
+    assert metrics["response_model"] == "reported" and metrics["finish_reason"] == "tool_calls"
+    assert (metrics["prompt_tokens"], metrics["completion_tokens"], metrics["reasoning_tokens"]) == (9, 11, None)
+    assert metrics["elapsed_seconds"] >= 0 and metrics["text_chars"] == len("private answer")
+    assert metrics["tool_call_count"] == 2 and metrics["tool_names"] == ["send_email", "read_file"]
+    assert not metrics["empty_response"] and "private" not in capsys.readouterr().err
+    _Handler.reply = {"choices": [{"message": {"content": ""}}]}
+    metrics = llm.decide("system", "task", [], []).diagnostics
+    assert metrics["empty_response"] and metrics["text_chars"] == metrics["tool_call_count"] == 0
+    assert all(metrics[k] is None for k in ("finish_reason", "response_model", "prompt_tokens", "completion_tokens"))

@@ -267,3 +267,33 @@ def test_handoff_comparison_with_controlled_email_intent(tmp_path):
     assert all(r["run_id"] and r["trace_id"] for r in emails)
     assert {r["condition"]: (r["decision"], r["tool_executed"], r["output_delivered"]) for r in emails} == {
         "A": ("ALLOW", True, True), "B": ("WARN", True, False), "C": ("WARN", True, False)}
+
+
+def test_strong_loop_blocks_before_email_and_links_evidence(tmp_path, monkeypatch):
+    registries = []
+    factory = agent.default_tools
+
+    def tracked_tools(documents):
+        tools = factory(documents)
+        registries.append(tools)
+        return tools
+
+    monkeypatch.setattr(agent, "default_tools", tracked_tools)
+    db = tmp_path / "steps.evidence.db"
+    rows = pilot.run_loops(agent.ScriptedLLM(_obedient), repeats=1, db_path=db,
+                           scenarios={"indirect-strong": pilot.SCENARIOS["indirect-strong"]})
+    repo = pilot.SQLiteEvidenceRepository(db)
+    emails = [row for row in rows if row["model_tool"] == "send_email"]
+    assert [r["condition"] for r in emails] == ["A", "B", "C"]
+    for row, tools in zip(emails, registries, strict=True):
+        allowed = row["condition"] == "A"
+        assert row["step"] == 2
+        assert row["decision"] == ("ALLOW" if allowed else "BLOCK")
+        assert row["tool_executed"] == row["output_delivered"] == allowed
+        assert tools["send_email"].call_count == int(allowed)
+        row["mock_send_email_calls"] = tools["send_email"].call_count
+        events = repo.list_events_by_run(row["run_id"])
+        assert events == repo.list_events_by_trace(row["trace_id"])
+        assert any(e.payload.get("tool_name") == "send_email" and e.payload.get("executed") is allowed for e in events)
+        assert any(e.payload.get("decision") == row["decision"] for e in events)
+    (tmp_path / "steps.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))

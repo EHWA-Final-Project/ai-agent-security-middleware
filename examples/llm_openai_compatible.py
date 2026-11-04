@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -100,6 +101,7 @@ class OpenAICompatibleLLM:
             headers["Authorization"] = f"Bearer {self.api_key}"
         request = urllib.request.Request(self.base_url.rstrip("/") + "/chat/completions",
                                          data=json.dumps(body).encode(), headers=headers, method="POST")
+        started = time.monotonic()
         try:
             with urllib.request.urlopen(request, timeout=self.timeout_sec) as response:
                 data = json.loads(response.read())
@@ -108,8 +110,25 @@ class OpenAICompatibleLLM:
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             raise AgentLLMError(f"provider call failed: {type(exc).__name__}") from None
 
-        message = (data.get("choices") or [{}])[0].get("message") or {}
+        elapsed = time.monotonic() - started
+        choice = (data.get("choices") or [{}])[0]
+        message = choice.get("message") or {}
         calls = message.get("tool_calls") or []
+        content = message.get("content")
+        usage = data.get("usage") or {}
+        reasoning = message.get("reasoning") or message.get("reasoning_content")
+        metrics = {
+            "finish_reason": choice.get("finish_reason"), "response_model": data.get("model"),
+            "prompt_tokens": usage.get("prompt_tokens"), "completion_tokens": usage.get("completion_tokens"),
+            "reasoning_tokens": (usage.get("completion_tokens_details") or {}).get("reasoning_tokens"),
+            "reasoning_chars": len(reasoning) if isinstance(reasoning, str) else None,
+            "requested_token_limit": self.max_tokens, "elapsed_seconds": elapsed,
+            "tool_call_count": len(calls), "tool_names": [(c.get("function") or {}).get("name") for c in calls],
+            "text_chars": len(content) if isinstance(content, str) else None,
+            "empty_response": not (content or calls) if choice.get("message") is not None else None,
+        }
+        if self.diagnostics:
+            print(json.dumps({"response": metrics}), file=sys.stderr)
         intent = None
         if calls:
             function = calls[0].get("function") or {}
@@ -120,4 +139,4 @@ class OpenAICompatibleLLM:
             if function.get("name") and isinstance(arguments, dict):
                 intent = ToolIntent(function["name"], arguments)
         return LLMReply(text=message.get("content") or "", tool_call=intent, model=data.get("model") or self.model,
-                        tool_call_id=(calls[0].get("id") or "") if calls else "")
+                        diagnostics=metrics, tool_call_id=(calls[0].get("id") or "") if calls else "")
