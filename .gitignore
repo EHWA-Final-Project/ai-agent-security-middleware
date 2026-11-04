@@ -60,3 +60,7 @@ temp/
 
 # External benchmark replay artifacts (raw payloads / machine-specific evidence)
 benchmark-results/
+
+# Received Evaluation handoff data (keep tracked agent/jailbreak aggregates)
+reports/holdout/
+reports/tuning/

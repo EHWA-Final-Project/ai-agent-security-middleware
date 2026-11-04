@@ -38,9 +38,13 @@ def render_details(report):
             st.caption(
                 "고유 sample / 전체 Trial / Guard-only 정상 오탐: unknown · 제공 검증 자료 없음"
             )
+    thresholds = sorted(
+        {r["threshold"] for r in report["rows"] if r["threshold"] is not None}
+    )
     threshold = st.selectbox(
         "결과 상세 Threshold",
-        sorted({r["threshold"] for r in report["rows"] if r["threshold"] is not None}),
+        thresholds,
+        index=thresholds.index(data["headline_block_threshold"]),
         key="benchmark_detail_threshold",
     )
     with st.expander("B/C Threshold Comparison · 실행 전/후 차단"):
