@@ -302,3 +302,31 @@ def test_live_bc_comparison_has_isolated_evidence_and_survives_rerun(dashboard):
     assert not at.exception
     assert len(service.list_runs()) == 2
     assert calls == []
+
+
+@pytest.mark.parametrize('key,expected', [('1', ('ALLOW', 1, True)), ('2', ('BLOCK', 0, False)), ('3', ('BLOCK', 1, False))])
+def test_bc_boundary_matrix_has_linked_result_decision_execution(dashboard, key, expected):
+    service, _, _ = dashboard
+    snapshots = service.run_comparison(key)
+    assert snapshots['B']['scenario'] == snapshots['C']['scenario']
+    for snapshot in snapshots.values():
+        result = snapshot['result']
+        assert (result['decision']['decision'], snapshot['tool_calls'], result['output_allowed']) == expected
+        events = service.query_events(result['identity']['run_id'])
+        assert {'SECURITY_RESULT', 'SECURITY_DECISION', 'EXECUTION_RESULT', 'RUN_STATUS'} <= {e['event_type'] for e in events}
+        assert all(e['payload']['run_id'] == result['identity']['run_id'] and e['payload']['trace_id'] == result['identity']['trace_id'] for e in events)
+        assert len({e['event_id'] for e in events}) == len(events)
+        assert [e['created_at'] for e in events] == sorted(e['created_at'] for e in events)
+
+
+def test_incomplete_evidence_is_not_confirmed_and_duplicate_replay_is_preserved(dashboard):
+    service, _, _ = dashboard
+    view = importlib.import_module('plugin_view')
+    snapshot = service.run_scenario('1')
+    events = service.query_events(snapshot['result']['identity']['run_id'])
+    incomplete = [e for e in events if e['event_type'] != 'EXECUTION_RESULT']
+    assert view.evidence_status(incomplete, snapshot) != view.evidence_status(events, snapshot)
+    duplicate = [events[0], deepcopy(events[0])]
+    assert len(view.replay_rows(duplicate, 0)) == 2
+    del duplicate[1]['event_id']
+    assert len(view.replay_rows(duplicate, 0)) == 2

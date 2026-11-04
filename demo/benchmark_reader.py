@@ -15,6 +15,12 @@ METRICS = {
     "FPR_send(WARN|BLOCK)": ("fpr_send_warn_block", "n_benign_send"),
     "FPR_send(BLOCK)": ("fpr_send_block", "n_benign_send"),
 }
+FIGURE_NAMES = (
+    "holdout_attack_tool_execution",
+    "holdout_benign_outcomes",
+    "holdout_tool_policy",
+    "holdout_c_block_causes",
+)
 
 
 def read_json(path):
@@ -107,6 +113,8 @@ def load_holdout(directory):
         "raw": None,
         "rows": [],
         "runtime_execution_verified": False,
+        "figures": [],
+        "aggregate": None,
     }
     path = root / "holdout_results.json"
     if not path.is_file():
@@ -194,6 +202,7 @@ def load_holdout(directory):
                             raise ValueError("raw rate differs from summary")
             result["raw"] = raw
             result["status"] = "제공 산술 검증 메타데이터 일치"
+        inspect_bundle(root, result)
         for name, indexed in sweeps.items():
             for (mode, threshold), cell in indexed.items():
                 for source, (metric, denominator) in METRICS.items():
@@ -214,7 +223,124 @@ def load_holdout(directory):
                             "denominator": cell[denominator],
                         }
                     )
+                if result["raw"]:
+                    for metric, denominator in (
+                        ("output_block", "n_attack"),
+                        ("completion_send", "n_benign_send"),
+                        ("fpr_read_warn_only", "n_benign_read"),
+                        ("fpr_send_warn_only", "n_benign_send"),
+                    ):
+                        if metric + "_numerator" not in raw_cell:
+                            continue
+                        n = number(raw_cell[metric + "_numerator"], count=True)
+                        d = number(raw_cell[metric + "_denominator"], count=True)
+                        if d != cell[denominator] or n > d:
+                            raise ValueError("raw outcome count mismatch")
+                        result["rows"].append(
+                            {
+                                "policy": name,
+                                "condition": mode,
+                                "threshold": threshold,
+                                "metric": metric,
+                                "rate": n / d if d else None,
+                                "numerator": n,
+                                "denominator": d,
+                            }
+                        )
     except (OSError, ValueError, KeyError, TypeError, OverflowError) as exc:
-        result.update(status="스키마 불일치", data=None, raw=None, rows=[])
+        result.update(status="스키마 불일치", data=None, raw=None, rows=[], figures=[])
         result["errors"].append(str(exc))
     return result
+
+
+def inspect_bundle(root, report):
+    """Reuse Evaluation-owned validators when supplied aggregates are available."""
+    from scripts.plot_holdout_aggregates import (
+        REQUIRED,
+        compare_causes,
+        validate_raw_report,
+        verify,
+    )
+
+    data, raw = report["data"], report["raw"]
+    causes = data["c_block_cause"]
+    if causes:
+        compare_causes(causes, causes, data["sweep_default"])
+        if raw:
+            compare_causes(causes, raw["c_causes"], data["sweep_default"])
+    else:
+        report["warnings"].append("C blocking causes unavailable")
+    if all((root / name).is_file() for name in REQUIRED):
+        files = {name: (root / name).read_bytes() for name in REQUIRED}
+        _, summary, policy, causes, audit = verify(files)
+        report["aggregate"] = audit
+        if raw:
+            validate_raw_report(raw, files, summary, policy, causes)
+    else:
+        report["warnings"].append(
+            "Aggregate CSV package incomplete; owner validator not run"
+        )
+    metadata_path = root / "figures" / "aggregate_validation.json"
+    if not metadata_path.is_file():
+        return
+    metadata = read_json(metadata_path)
+    if metadata.get("runtime_execution_verified", False) is not False:
+        raise ValueError("figure metadata must not claim Runtime verification")
+    if metadata.get("status") == "raw_arithmetic_verified":
+        if not raw or metadata.get("raw_verification_report_sha256") != sha256(
+            root / "raw_verification.json"
+        ):
+            raise ValueError("figure metadata/raw report SHA256 mismatch")
+        if metadata.get("figure_sha256") != raw.get("figure_sha256"):
+            raise ValueError("figure hash inventories differ")
+    elif metadata.get("status") != "aggregate_checked_only":
+        raise ValueError("unsupported figure validation status")
+    expected_inputs = metadata.get("input_sha256", {})
+    for name in REQUIRED:
+        if (root / name).is_file() and expected_inputs.get(name) != sha256(root / name):
+            raise ValueError(f"figure metadata input SHA256 mismatch: {name}")
+    hashes = metadata.get("figure_sha256", {})
+    if not isinstance(hashes, dict):
+        raise TypeError("figure_sha256 must be an object")
+    allowed = {name + suffix for name in FIGURE_NAMES for suffix in (".png", ".svg")}
+    for name, digest in hashes.items():
+        if name not in allowed:
+            raise ValueError("unexpected figure filename")
+        path = root / "figures" / name
+        if not path.is_file():
+            report["warnings"].append(f"missing figure {name}")
+        elif sha256(path) != digest:
+            raise ValueError(f"figure SHA256 mismatch: {name}")
+        elif name.endswith(".png"):
+            report["figures"].append(str(path))
+
+
+def load_tuning(directory):
+    path = Path(directory) / "audit_summary.json"
+    if not path.is_file():
+        return None
+    audit = read_json(path)
+    if (
+        audit.get("schema_version") != "imported-fatin-audit-v1"
+        or audit.get("status") != "arithmetic_audited"
+        or audit.get("evidence_validated") is not False
+        or audit.get("split") != "tune"
+        or audit.get("summary_mismatches") != []
+    ):
+        raise ValueError("unsupported Tuning audit state")
+    mapped = []
+    for cell in audit["cells"]:
+        mapped.append(
+            {
+                **cell,
+                **{source: cell[metric] for source, (metric, _) in METRICS.items()},
+            }
+        )
+    validate_sweep(mapped)
+    for row in audit.get("latency", []):
+        if row["condition"] not in ("A", "B", "C"):
+            raise ValueError("invalid latency condition")
+        number(row["n"], count=True)
+        for field in ("mean_ms", "p50_ms", "p95_ms"):
+            number(row[field])
+    return audit

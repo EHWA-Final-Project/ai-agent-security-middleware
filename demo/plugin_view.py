@@ -79,8 +79,8 @@ def replay_rows(events, cursor):
         {
             "Replay": "▶ CURRENT" if index == cursor else "✓ 완료" if index < cursor else "○ pending",
             "Event": event_label(event), "Result": event_status(event),
-            "Stage": event.get("stage") or "—", "event_id": event["event_id"],
-            "created_at": event["created_at"],
+            "Stage": event.get("stage") or "—", "event_id": event.get("event_id", "기록 없음"),
+            "created_at": event.get("created_at", "기록 없음"),
         }
         for index, event in enumerate(events)
     ]
@@ -109,7 +109,9 @@ def evidence_status(events, snapshot):
         for event in events
     )
     result = snapshot["result"]
-    if matched and not result.get("errors") and result.get("run_status") == "COMPLETED":
+    kinds = {event["event_type"] for event in events}
+    complete = {"SECURITY_DECISION", "EXECUTION_RESULT", "RUN_STATUS"} <= kinds
+    if matched and complete and not result.get("errors") and result.get("run_status") == "COMPLETED":
         return "저장 확인"
     return "확인 필요"
 

@@ -132,7 +132,8 @@ def render_live_comparison():
 def render_benchmark_lab():
     from pathlib import Path
 
-    from benchmark_reader import load_holdout, read_json
+    from benchmark_reader import FIGURE_NAMES, load_holdout, load_tuning, read_json
+    from benchmark_view import render_details
 
     st.subheader("Benchmark Lab · 읽기 전용")
     st.caption("저장된 실측 실험 비교 · 실시간 B/C 실행이 아닙니다.")
@@ -161,6 +162,7 @@ def render_benchmark_lab():
         st.caption(
             "분자는 raw 검증 cell이 제공된 경우만 표시합니다. 누락 값은 unknown이며 0이 아닙니다."
         )
+        render_details(report)
         st.dataframe(report["rows"], hide_index=True, width="stretch")
         policy = st.selectbox(
             "차트 ToolPolicy", ["default", "tool_policy"], key="benchmark_chart_policy"
@@ -205,19 +207,14 @@ def render_benchmark_lab():
                     "c_block_cause": report["data"]["c_block_cause"],
                 }
             )
-        for name in (
-            "holdout_attack_tool_execution",
-            "holdout_benign_outcomes",
-            "holdout_tool_policy",
-            "holdout_c_block_causes",
-        ):
+        for name in FIGURE_NAMES:
             image = directory / "figures" / (name + ".png")
-            if image.is_file():
+            if str(image) in report["figures"]:
                 st.image(
                     str(image), caption=name + " · 제공된 그림 / 독립 실행 검증 아님"
                 )
             else:
-                st.caption(name + " · 그래프 파일 없음")
+                st.caption(name + " · 그래프 파일 없음 / 검증 metadata 불충분")
     with st.expander("Tuning · 별도 실험 / 인계 감사 자료"):
         tuning = Path(
             st.text_input(
@@ -226,6 +223,26 @@ def render_benchmark_lab():
                 key="tuning_directory",
             )
         )
+        try:
+            audit = load_tuning(tuning)
+            if audit:
+                st.caption("Tuning · 제공 산술 감사 자료 / Holdout과 별도 실험")
+                st.dataframe(audit["cells"], hide_index=True, width="stretch")
+                latency = audit.get("latency", [])
+                if latency:
+                    st.markdown("**Core-only Latency · ms**")
+                    st.dataframe(latency, hide_index=True, width="stretch")
+                    st.caption(
+                        "모델 호출·Tool·SQLite·Runtime E2E 시간 제외. 제공된 감사 자료의 값이며 자체 재측정이 아닙니다."
+                    )
+                st.json(
+                    {
+                        "latency_metadata": audit.get("latency_metadata"),
+                        "input_sha256": audit.get("input_sha256"),
+                    }
+                )
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            st.warning(f"Tuning audit: {exc}")
         for name in ("audit_summary.json", "plot_audit.json"):
             candidate = tuning / name
             if not candidate.is_file():

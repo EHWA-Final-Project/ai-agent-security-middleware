@@ -177,3 +177,90 @@ def test_inconsistent_raw_rejected(tmp_path, change):
 def test_truncated_json(tmp_path):
     (tmp_path / "holdout_results.json").write_text("{", encoding="utf-8")
     assert load_holdout(tmp_path)["errors"]
+
+
+def test_owner_aggregate_and_raw_contract_integration(tmp_path):
+    from scripts.verify_holdout_raw import verify_raw
+    from tests.unit.test_verify_holdout_raw import fixture_files
+
+    files = fixture_files()
+    data = json.loads(files["holdout_results.json"])
+    data.update(headline_block_threshold=0.8, tool_policy={}, notes=[])
+    files["holdout_results.json"] = json.dumps(data).encode()
+    record = json.loads(files["run_record_holdout.json"])
+    record["policy"].update(headline_block_threshold=0.8, tool_policy_policy_run={})
+    files["run_record_holdout.json"] = json.dumps(record).encode()
+    raw = verify_raw(files)
+    for name, blob in files.items():
+        (tmp_path / name).write_bytes(blob)
+    write(tmp_path / "raw_verification.json", raw)
+    report = load_holdout(tmp_path)
+    assert not report["errors"], report["errors"]
+    assert report["aggregate"]["status"] == "aggregate_checked_only"
+    assert any(r["metric"] == "completion_send" for r in report["rows"])
+    assert report["runtime_execution_verified"] is False
+    (tmp_path / "sweep_holdout_summary.csv").write_text("tampered", encoding="utf-8")
+    assert load_holdout(tmp_path)["errors"]
+
+
+@pytest.mark.parametrize("change", ["bytes", "path", "raw_hash"])
+def test_figure_package_integrity_rejects_unsafe_or_changed_content(tmp_path, change):
+    raw = package(tmp_path)
+    name = "holdout_attack_tool_execution.png"
+    directory = tmp_path / "figures"
+    directory.mkdir()
+    (directory / name).write_bytes(b"synthetic-test-image")
+    hashes = {name: hashlib.sha256(b"synthetic-test-image").hexdigest()}
+    raw["figure_sha256"] = hashes
+    write(tmp_path / "raw_verification.json", raw)
+    metadata = {
+        "status": "raw_arithmetic_verified",
+        "runtime_execution_verified": False,
+        "figure_sha256": deepcopy(hashes),
+        "input_sha256": raw["input_sha256"],
+        "raw_verification_report_sha256": hashlib.sha256(
+            (tmp_path / "raw_verification.json").read_bytes()
+        ).hexdigest(),
+    }
+    write(directory / "aggregate_validation.json", metadata)
+    assert load_holdout(tmp_path)["figures"] == [str(directory / name)]
+    if change == "bytes":
+        (directory / name).write_bytes(b"changed")
+    elif change == "path":
+        metadata["figure_sha256"]["../outside.png"] = "0" * 64
+    elif change == "raw_hash":
+        metadata["raw_verification_report_sha256"] = "0" * 64
+    write(directory / "aggregate_validation.json", metadata)
+    assert load_holdout(tmp_path)["errors"]
+
+
+def test_tuning_audit_cannot_relabel_holdout_or_hide_mismatches(tmp_path):
+    from demo.benchmark_reader import load_tuning
+
+    data = payload()
+    cells = []
+    for row in data["sweep_default"]:
+        cells.append(
+            {**row, **{metric: row[source] for source, (metric, _) in METRICS.items()}}
+        )
+    audit = {
+        "schema_version": "imported-fatin-audit-v1",
+        "status": "arithmetic_audited",
+        "evidence_validated": False,
+        "split": "tune",
+        "summary_mismatches": [],
+        "cells": cells,
+        "latency": [
+            {"condition": "B", "n": 1, "mean_ms": 0.2, "p50_ms": 0.2, "p95_ms": 0.2}
+        ],
+    }
+    write(tmp_path / "audit_summary.json", audit)
+    assert load_tuning(tmp_path)["split"] == "tune"
+    audit["split"] = "holdout"
+    write(tmp_path / "audit_summary.json", audit)
+    with pytest.raises(ValueError):
+        load_tuning(tmp_path)
+    audit["split"], audit["summary_mismatches"] = "tune", ["mismatch"]
+    write(tmp_path / "audit_summary.json", audit)
+    with pytest.raises(ValueError):
+        load_tuning(tmp_path)
