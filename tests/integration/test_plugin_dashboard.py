@@ -226,7 +226,7 @@ def test_benchmark_pending_and_attack_catalog_do_not_execute_runtime(dashboard):
     at = AppTest.from_file(str(ROOT / "demo" / "dashboard.py"), default_timeout=30).run()
     assert not at.exception
     assert calls == []
-    assert any(item.value == "평가 결과 준비 중" for item in at.info)
+    assert any(item.value == "결과 없음" for item in at.info)
     assert not at.tabs[3].metric
     catalog = next(item.value for item in at.dataframe if "Attack ID" in item.value.columns)
     assert len(catalog) == 9
@@ -248,3 +248,85 @@ def test_warn_summary_uses_recorded_execution_and_output(dashboard, monkeypatch)
     assert [metric.value for metric in at.metric[:3]] == ["WARN", "실행됨", "차단"]
     assert any("WARN은 경고 판정" in item.value for item in at.warning)
     assert not any("실행 전 차단: 실제 Tool" in item.value for item in at.info)
+
+
+def test_benchmark_invalid_handoff_is_visible_without_running_tools(dashboard, tmp_path):
+    _, _, calls = dashboard
+    (tmp_path / 'holdout_results.json').write_text('{', encoding='utf-8')
+    at = AppTest.from_file(str(ROOT / 'demo' / 'dashboard.py'), default_timeout=30).run()
+    at.text_input(key='holdout_directory').set_value(str(tmp_path)).run()
+    assert not at.exception
+    assert at.warning
+    assert not at.tabs[3].metric
+    assert calls == []
+
+
+def test_benchmark_summary_only_displays_unknown_numerators(dashboard, tmp_path):
+    _, _, calls = dashboard
+    from benchmark_reader import METRICS, THRESHOLDS
+
+    rows = [dict(condition=mode, threshold=threshold, n_attack=4,
+                 n_benign_read=2, n_benign_send=2, **dict.fromkeys(METRICS, 0.5))
+            for mode, thresholds in (('A', [None]), ('B', THRESHOLDS), ('C', THRESHOLDS))
+            for threshold in thresholds]
+    data = {'kind': 'benchmark_evaluation', 'split': 'holdout', 'run': {}, 'data': {},
+            'headline_block_threshold': 0.8, 'tool_policy': {}, 'notes': [],
+            'sweep_default': rows, 'sweep_with_tool_policy': rows, 'c_block_cause': []}
+    (tmp_path / 'holdout_results.json').write_text(json.dumps(data), encoding='utf-8')
+    at = AppTest.from_file(str(ROOT / 'demo' / 'dashboard.py'), default_timeout=30).run()
+    at.text_input(key='holdout_directory').set_value(str(tmp_path)).run()
+    assert not at.exception
+    table = next(frame.value for frame in at.dataframe if 'numerator' in frame.value.columns)
+    assert table['numerator'].isna().all()
+    assert set(table['policy']) == {'default', 'tool_policy'}
+    assert calls == []
+
+
+def test_live_bc_comparison_has_isolated_evidence_and_survives_rerun(dashboard):
+    service, _, calls = dashboard
+    at = AppTest.from_file(str(ROOT / 'demo' / 'dashboard.py'), default_timeout=30).run()
+    at.button(key='run_bc_comparison').click().run()
+    assert not at.exception
+    snapshots = at.session_state['bc_comparison']
+    identities = [s['result']['identity'] for s in snapshots.values()]
+    assert len({i['run_id'] for i in identities}) == 2
+    assert len({i['trace_id'] for i in identities}) == 2
+    for mode, snapshot in snapshots.items():
+        result = snapshot['result']
+        assert snapshot['tool_calls'] == 1 and result['output_allowed'] is True
+        assert f'-cond-{mode.lower()}-' in result['decision']['policy_version']
+        events = service.query_events(result['identity']['run_id'])
+        assert events and all(e['trace_id'] == result['identity']['trace_id'] for e in events)
+    assert len(service.list_runs()) == 2
+    at.run()
+    assert not at.exception
+    assert len(service.list_runs()) == 2
+    assert calls == []
+
+
+@pytest.mark.parametrize('key,expected', [('1', ('ALLOW', 1, True)), ('2', ('BLOCK', 0, False)), ('3', ('BLOCK', 1, False))])
+def test_bc_boundary_matrix_has_linked_result_decision_execution(dashboard, key, expected):
+    service, _, _ = dashboard
+    snapshots = service.run_comparison(key)
+    assert snapshots['B']['scenario'] == snapshots['C']['scenario']
+    for snapshot in snapshots.values():
+        result = snapshot['result']
+        assert (result['decision']['decision'], snapshot['tool_calls'], result['output_allowed']) == expected
+        events = service.query_events(result['identity']['run_id'])
+        assert {'SECURITY_RESULT', 'SECURITY_DECISION', 'EXECUTION_RESULT', 'RUN_STATUS'} <= {e['event_type'] for e in events}
+        assert all(e['payload']['run_id'] == result['identity']['run_id'] and e['payload']['trace_id'] == result['identity']['trace_id'] for e in events)
+        assert len({e['event_id'] for e in events}) == len(events)
+        assert [e['created_at'] for e in events] == sorted(e['created_at'] for e in events)
+
+
+def test_incomplete_evidence_is_not_confirmed_and_duplicate_replay_is_preserved(dashboard):
+    service, _, _ = dashboard
+    view = importlib.import_module('plugin_view')
+    snapshot = service.run_scenario('1')
+    events = service.query_events(snapshot['result']['identity']['run_id'])
+    incomplete = [e for e in events if e['event_type'] != 'EXECUTION_RESULT']
+    assert view.evidence_status(incomplete, snapshot) != view.evidence_status(events, snapshot)
+    duplicate = [events[0], deepcopy(events[0])]
+    assert len(view.replay_rows(duplicate, 0)) == 2
+    del duplicate[1]['event_id']
+    assert len(view.replay_rows(duplicate, 0)) == 2
