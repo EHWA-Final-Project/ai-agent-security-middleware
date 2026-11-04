@@ -90,20 +90,25 @@ def load_condition(name: str, *, block_threshold: float | None = None) -> Condit
     return Condition(name=name.upper(), config_path=path, policy=policy)
 
 
-def build_plugin_manager(condition: Condition) -> PluginManager:
+def build_plugin_manager(condition: Condition, *, tool_policy=None) -> PluginManager:
     """Register all four Guards, then apply the condition's enabled flags.
 
     Returns a PluginManager whose enabled Guards match the condition file
     (none for A, all four for B and C).
+
+    ``tool_policy`` (a ``ToolPolicy``) sets the Tool Guard's allowlist and
+    argument scope; ``None`` keeps the baseline behaviour.
     """
     manager = PluginManager()
-    for guard in (InputGuard(), ContextGuard(), ToolGuard(), OutputGuard()):
+    for guard in (InputGuard(), ContextGuard(), ToolGuard(tool_policy), OutputGuard()):
         manager.register_guard(guard)
     manager.load_from_config(str(condition.config_path))
     return manager
 
 
-def make_condition_security_factory(condition: Condition, evidence_sink, *, guard_timeout_sec=2.0):
+def make_condition_security_factory(
+    condition: Condition, evidence_sink, *, guard_timeout_sec=2.0, tool_policy=None
+):
     """Security factory for ``run_connected`` / ``RuntimeAdapter.run`` driven by a condition.
 
     Same shape as ``runtime.composition.make_security_factory`` but the policy and
@@ -118,7 +123,7 @@ def make_condition_security_factory(condition: Condition, evidence_sink, *, guar
 
     def factory(enforcement):
         return SecurityOrchestrator(
-            build_plugin_manager(condition),
+            build_plugin_manager(condition, tool_policy=tool_policy),
             condition.policy,
             enforcement,
             evidence_sink,

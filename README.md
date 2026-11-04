@@ -46,6 +46,12 @@ Runtime
 
 A = No Guard, B = Independent, C = Linked / Cross-layer입니다. 0.80은 baseline, 0.92는 mechanism demonstration이며 일반적인 성능 우위를 증명하지 않습니다. 실험은 Mock Tool과 BENIGN-001 / ATTACK-001 각 1종의 반복 실행으로, 전체 공격 환경의 최종 보안 성능으로 일반화하지 않습니다.
 
+### Guard 적용 범위
+
+- Input·Context·Tool Guard는 모델 호출 이후, 실제 Tool 실행 이전에 동작한다. Output Guard는 Tool 실행 이후, 사용자에게 전달하기 전에 동작한다.
+- Tool 호출이 없는 모델 응답과 `reply.text`는 검사하지 않는다. 검사 대상은 Tool 호출을 요청한 턴이다.
+- 정상 `send_email`은 기본 설정에서 WARN이며, 이 경우 Tool은 실행되고 결과 전달만 보류된다. `ToolPolicy`로 허용 범위를 지정하면 범위 안의 호출은 ALLOW가 된다.
+
 ## Branch strategy
 
 - `main` — stable / release
