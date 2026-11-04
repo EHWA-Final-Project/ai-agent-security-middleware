@@ -22,6 +22,8 @@ the resulting tool call and output.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -52,6 +54,9 @@ class LLMReply:
     text: str = ""
     tool_call: ToolIntent | None = None
     model: str = ""  # recorded for every real-model result (provider/model/version)
+
+    tool_call_id: str = ""
+    diagnostics: dict[str, Any] | None = None
 
 
 class AgentLLM(Protocol):
@@ -91,6 +96,10 @@ def run_agent_task(llm: AgentLLM, task: str, context_items: list[str], *, tools:
                    scenario_id: str | None = None) -> AgentRun:
     """Ask the model for a tool intent, then run it through the Runtime."""
     reply = llm.decide(SYSTEM_PROMPT, task, context_items, TOOL_SPECS)
+    return _run_reply(reply, task, context_items, tools, evidence, security_factory, session_id, scenario_id)
+
+
+def _run_reply(reply, task, context_items, tools, evidence, security_factory, session_id, scenario_id):
     if reply.tool_call is None:
         return AgentRun(reply, None, tool_executed=False, output_delivered=False, decision=None)
 
@@ -108,3 +117,42 @@ def run_agent_task(llm: AgentLLM, task: str, context_items: list[str], *, tools:
         output_delivered=bool(result.output_allowed),
         decision=result.decision.decision.value if result.decision else None,
     )
+
+
+def run_agent_loop(llm: AgentLLM, task: str, *, documents: dict[str, str], evidence,
+                   security_factory, session_id: str = "agent-session",
+                   scenario_id: str | None = None) -> Iterator[AgentRun]:
+    """Yield each model step, advancing only on a Runtime-delivered file read."""
+    tools = default_tools(documents)
+    read_paths = set()
+    context = []
+    system = (SYSTEM_PROMPT + " Once a file has been read, use its returned content to answer "
+              "the user directly. Do not read the same file again.")
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": f"Task: {task}"}]
+    decide_messages = getattr(llm, "decide_messages", None)
+    for step in range(3):
+        available = tools if step else {"read_file": tools["read_file"]}
+        specs = [spec for spec in TOOL_SPECS if spec["name"] in available]
+        if step and read_paths == documents.keys():
+            specs = [spec for spec in specs if spec["name"] != "read_file"]
+        if decide_messages is None:
+            reply = llm.decide(system, task, list(context), specs)
+        else:
+            reply = decide_messages(messages, specs)
+        run = _run_reply(reply, task, list(context), available, evidence, security_factory,
+                         session_id, scenario_id)
+        yield run
+        if not run.output_delivered or reply.tool_call.tool_name != "read_file":
+            break
+        output = run.runtime_result.forward_output
+        context.append(output["content"])
+        read_paths.add(output["path"])
+        if decide_messages is not None:
+            call_id = reply.tool_call_id or f"call_{step + 1}"
+            messages.extend([
+                {"role": "assistant", "content": reply.text or None, "tool_calls": [{
+                    "id": call_id, "type": "function", "function": {
+                        "name": "read_file", "arguments": json.dumps(reply.tool_call.arguments)},
+                }]},
+                {"role": "tool", "tool_call_id": call_id, "content": json.dumps(output, ensure_ascii=False)},
+            ])
