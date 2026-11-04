@@ -1,5 +1,7 @@
 # GuardOn 통합·독립 QA — 2026-11-04 KST
 
+> **최신 결과:** [최종 PR 통합 및 dev 검증 보고서](CONTEST_FINAL_INTEGRATION_QA_20261104.md). #26/#28/#29는 dev 병합 완료, 실제 병합 코드 `a2486e780347be603b23cace441b8d878c45acfb`에서 **597 passed / 0 skipped / 0 failed**, Ruff 통과, Streamlit health 200. JS-01/03/04 DONE, JS-02 PARTIAL(실제 파일 미수신). 아래 본문은 최초 #29 준비 당시 기록이며 최종 상태는 링크 문서가 우선한다. JS-05는 이번 통합 범위 외다.
+
 사용자 요청에 따라 Downloads의 `GuardOn_Codex_Integration_Prompt_20261104.md`를 검토하고 P0 구현·검증을 진행했다. 기존 워크트리와 중첩 저장소는 보존했다. Common/Schema/Core/Runtime 계약·규칙·Threshold는 변경하지 않았다.
 
 ## 기준과 원격 검토
