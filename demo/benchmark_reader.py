@@ -1,9 +1,15 @@
 """Read-only Holdout presentation adapter; never runs or re-verifies trials."""
 
 import hashlib
-import json
 import math
 from pathlib import Path
+
+from demo.reviewed_package import (
+    historical_digest,
+    json_object,
+    package_for_split,
+    validate_holdout_history,
+)
 
 THRESHOLDS = (0.70, 0.75, 0.80, 0.85, 0.90, 0.92, 0.95, 0.98)
 METRICS = {
@@ -24,10 +30,7 @@ FIGURE_NAMES = (
 
 
 def read_json(path):
-    value = json.loads(Path(path).read_text(encoding="utf-8-sig"))
-    if not isinstance(value, dict):
-        raise TypeError(f"{Path(path).name}: expected JSON object")
-    return value
+    return json_object(Path(path).read_bytes())
 
 
 def sha256(path):
@@ -115,11 +118,13 @@ def load_holdout(directory):
         "runtime_execution_verified": False,
         "figures": [],
         "aggregate": None,
+        "package": None,
     }
     path = root / "holdout_results.json"
     if not path.is_file():
         return result
     try:
+        result["package"] = package_for_split(root)
         data = read_json(path)
         if data["kind"] != "benchmark_evaluation" or data["split"] != "holdout":
             raise ValueError("expected benchmark_evaluation / holdout")
@@ -177,10 +182,12 @@ def load_holdout(directory):
             if not isinstance(inputs, dict):
                 raise ValueError("input_sha256 must be an object")
             for required in ("holdout_results.json", "run_record_holdout.json"):
-                if (
-                    inputs.get(required) != result["hashes"].get(required)
-                    or required not in result["hashes"]
-                ):
+                expected = (
+                    historical_digest(result["package"], f"holdout/{required}")
+                    if result["package"]
+                    else result["hashes"].get(required)
+                )
+                if inputs.get(required) != expected or required not in result["hashes"]:
                     raise ValueError(f"missing or mismatched input SHA256: {required}")
             for name, summary in sweeps.items():
                 cells = raw["sweeps"][name]["cells"]
@@ -203,6 +210,10 @@ def load_holdout(directory):
             result["raw"] = raw
             result["status"] = "제공 산술 검증 메타데이터 일치"
         inspect_bundle(root, result)
+        if result["package"]:
+            result["status"] = (
+                "공유 검토본 무결성·집계 대조 완료 (원본 Trial 재집계 아님)"
+            )
         for name, indexed in sweeps.items():
             for (mode, threshold), cell in indexed.items():
                 for source, (metric, denominator) in METRICS.items():
@@ -275,7 +286,10 @@ def inspect_bundle(root, report):
         _, summary, policy, causes, audit = verify(files)
         report["aggregate"] = audit
         if raw:
-            validate_raw_report(raw, files, summary, policy, causes)
+            if report["package"]:
+                validate_holdout_history(root, report["package"], raw)
+            else:
+                validate_raw_report(raw, files, summary, policy, causes)
     else:
         report["warnings"].append(
             "Aggregate CSV package incomplete; owner validator not run"
@@ -297,7 +311,16 @@ def inspect_bundle(root, report):
         raise ValueError("unsupported figure validation status")
     expected_inputs = metadata.get("input_sha256", {})
     for name in REQUIRED:
-        if (root / name).is_file() and expected_inputs.get(name) != sha256(root / name):
+        expected = (
+            (
+                historical_digest(report["package"], f"holdout/{name}")
+                if report["package"]
+                else sha256(root / name)
+            )
+            if (root / name).is_file()
+            else None
+        )
+        if expected is not None and expected_inputs.get(name) != expected:
             raise ValueError(f"figure metadata input SHA256 mismatch: {name}")
     hashes = metadata.get("figure_sha256", {})
     if not isinstance(hashes, dict):
@@ -319,6 +342,7 @@ def load_tuning(directory):
     path = Path(directory) / "audit_summary.json"
     if not path.is_file():
         return None
+    proof = package_for_split(Path(directory))
     audit = read_json(path)
     if (
         audit.get("schema_version") != "imported-fatin-audit-v1"
@@ -330,6 +354,26 @@ def load_tuning(directory):
         raise ValueError("unsupported Tuning audit state")
     mapped = []
     for cell in audit["cells"]:
+        for field, value in cell.items():
+            if not field.endswith("_numerator"):
+                continue
+            metric = field.removesuffix("_numerator")
+            numerator = number(value, count=True)
+            denominator = number(cell[metric + "_denominator"], count=True)
+            if (
+                numerator > denominator
+                or (
+                    denominator
+                    and not math.isclose(
+                        number(cell[metric]),
+                        numerator / denominator,
+                        rel_tol=0,
+                        abs_tol=1e-12,
+                    )
+                )
+                or (not denominator and cell[metric] is not None)
+            ):
+                raise ValueError("Tuning rate/count inconsistency")
         mapped.append(
             {
                 **cell,
@@ -343,4 +387,83 @@ def load_tuning(directory):
         number(row["n"], count=True)
         for field in ("mean_ms", "p50_ms", "p95_ms"):
             number(row[field])
+    if proof:
+        for group in audit["guard_detection"]:
+            n = number(group["n"], count=True)
+            flagged = number(group["flagged"], count=True)
+            if flagged > n or (
+                n
+                and not math.isclose(
+                    number(group["rate"]), flagged / n, rel_tol=0, abs_tol=1e-12
+                )
+            ):
+                raise ValueError("Tuning Guard detection count/rate mismatch")
+        validate_tuning_bundle(Path(directory), audit, proof)
+        audit = {
+            **audit,
+            "package_validation": proof,
+            "figures": [
+                str(Path(directory) / "figures" / (name + ".png"))
+                for name in (
+                    "attack_tool_execution",
+                    "benign_warn_block",
+                    "core_latency",
+                    "direct_indirect",
+                )
+            ],
+        }
     return audit
+
+
+def validate_tuning_bundle(root, audit, proof):
+    import csv
+
+    from scripts.verify_holdout_raw import canonical, compare_summary
+
+    def csv_rows(name):
+        with (root / name).open(encoding="utf-8-sig", newline="") as stream:
+            return list(csv.DictReader(stream))
+
+    plot = read_json(root / "plot_audit.json")
+    if plot["split"] != "tune" or plot.get("runtime_execution_verified") is not False:
+        raise ValueError("Tuning plot split/scope mismatch")
+    if compare_summary(
+        canonical(audit["cells"]), canonical(csv_rows("recomputed_sweep.csv"))
+    ) or compare_summary(canonical(audit["cells"]), canonical(plot["cells"])):
+        raise ValueError("Tuning CSV/audit/plot cells differ")
+    if (
+        plot["input_sha256"]["core_latency.csv"]
+        != proof["hashes"]["tuning/core_latency.csv"]
+    ):
+        raise ValueError("Tuning latency source hash mismatch")
+    for basename in ("sweep_bc_tune_trials.csv", "sweep_bc_tune_summary.csv"):
+        expected = audit["input_sha256"]["results/" + basename]
+        if plot["input_sha256"][basename] != expected:
+            raise ValueError("Tuning historical input declarations differ")
+    for filename, values, keys in (
+        ("core_latency.csv", audit["latency"], ("condition",)),
+        (
+            "guard_detection.csv",
+            audit["guard_detection"],
+            ("dataset", "subset", "label", "guard"),
+        ),
+    ):
+        source = csv_rows(filename)
+        indexed = {tuple(row[k] for k in keys): row for row in values}
+        seen = set()
+        for row in source:
+            identity = tuple(row[k] for k in keys)
+            if identity in seen or identity not in indexed:
+                raise ValueError("duplicate or unexpected Tuning aggregate row")
+            seen.add(identity)
+            for field, value in row.items():
+                expected = indexed[identity][field]
+                if field not in keys:
+                    if not math.isclose(
+                        float(value), number(expected), abs_tol=1e-12, rel_tol=0
+                    ):
+                        raise ValueError("Tuning aggregate value mismatch")
+                elif value != expected:
+                    raise ValueError("Tuning aggregate key mismatch")
+        if seen != set(indexed):
+            raise ValueError("missing Tuning aggregate row")

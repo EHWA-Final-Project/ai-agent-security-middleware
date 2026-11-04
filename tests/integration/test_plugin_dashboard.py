@@ -330,3 +330,39 @@ def test_incomplete_evidence_is_not_confirmed_and_duplicate_replay_is_preserved(
     assert len(view.replay_rows(duplicate, 0)) == 2
     del duplicate[1]['event_id']
     assert len(view.replay_rows(duplicate, 0)) == 2
+
+
+def test_reviewed_dashboard_shows_eight_graphs_without_runtime_rerun(dashboard, tmp_path, monkeypatch):
+    from demo.reviewed_package import import_archive
+    from tests.unit.test_reviewed_package import archive, synthetic_package
+
+    _, _, calls = dashboard
+    files, _ = synthetic_package()
+    root = tmp_path / 'package'
+    import_archive(archive(tmp_path, files), root)
+    monkeypatch.setenv('GUARDON_EVALUATION_HANDOFF', str(root))
+    at = AppTest.from_file(str(ROOT / 'demo/dashboard.py'), default_timeout=60).run()
+    assert not at.exception, at.exception
+    assert len(at.get('image')) == 8
+    assert any('review_package_integrity_checked' in item.value for item in at.json)
+    at.run()
+    assert not at.exception
+    assert len(at.get('image')) == 8
+    assert calls == []
+
+
+def test_reviewed_dashboard_hides_changed_package_graphs(dashboard, tmp_path, monkeypatch):
+    from demo.reviewed_package import import_archive
+    from tests.unit.test_reviewed_package import archive, synthetic_package
+
+    _, _, calls = dashboard
+    files, _ = synthetic_package()
+    root = tmp_path / 'package'
+    import_archive(archive(tmp_path, files), root)
+    (root / 'tuning/figures/core_latency.png').write_bytes(b'changed')
+    monkeypatch.setenv('GUARDON_EVALUATION_HANDOFF', str(root))
+    at = AppTest.from_file(str(ROOT / 'demo/dashboard.py'), default_timeout=60).run()
+    assert not at.exception, at.exception
+    assert not at.get('image')
+    assert at.warning
+    assert calls == []

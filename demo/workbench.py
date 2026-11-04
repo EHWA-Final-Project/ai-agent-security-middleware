@@ -130,6 +130,7 @@ def render_live_comparison():
 
 
 def render_benchmark_lab():
+    import os
     from pathlib import Path
 
     from benchmark_reader import FIGURE_NAMES, load_holdout, load_tuning, read_json
@@ -143,7 +144,9 @@ def render_benchmark_lab():
     directory = Path(
         st.text_input(
             "Holdout 인계 디렉터리",
-            str(Path(__file__).resolve().parents[1] / "reports" / "holdout"),
+            str(Path(os.environ["GUARDON_EVALUATION_HANDOFF"]) / "holdout")
+            if os.environ.get("GUARDON_EVALUATION_HANDOFF")
+            else str(Path(__file__).resolve().parents[1] / "reports" / "holdout"),
             key="holdout_directory",
         )
     ).expanduser()
@@ -163,6 +166,27 @@ def render_benchmark_lab():
             "분자는 raw 검증 cell이 제공된 경우만 표시합니다. 누락 값은 unknown이며 0이 아닙니다."
         )
         render_details(report)
+        if report["package"]:
+            st.warning(
+                "팀 내부 공유 검토본 · Tensor Trust 결과 공유·재배포 권한 미확인. 공개 URL·포스터 게시 전 별도 확인이 필요합니다."
+            )
+            with st.expander(
+                "검증 범위 4단계 · 원본 기록 / 현재 패키지 / 변환 출처 / 이번 실행"
+            ):
+                st.json(
+                    {
+                        "historical_status": report["raw"]["status"],
+                        "current_package_status": report["package"]["status"],
+                        "declared_transformations": report["package"][
+                            "transformations"
+                        ],
+                        "source_relationships": report["package"]["entries"],
+                        "current_package_hashes": report["package"]["hashes"],
+                        "raw_trial_recalculation_performed_here": False,
+                        "runtime_execution_verified": False,
+                        "limitations": report["package"]["limitations"],
+                    }
+                )
         st.dataframe(report["rows"], hide_index=True, width="stretch")
         policy = st.selectbox(
             "차트 ToolPolicy", ["default", "tool_policy"], key="benchmark_chart_policy"
@@ -228,6 +252,18 @@ def render_benchmark_lab():
             if audit:
                 st.caption("Tuning · 제공 산술 감사 자료 / Holdout과 별도 실험")
                 st.dataframe(audit["cells"], hide_index=True, width="stretch")
+                st.caption(
+                    f"Tuning Trial rows: {audit.get('raw_trial_rows', 'unknown')} · split=tune · historical status=arithmetic_audited · evidence_validated=false"
+                )
+                st.json(
+                    {
+                        "dataset_manifest": audit.get("dataset_manifest"),
+                        "guard_detection": audit.get("guard_detection"),
+                        "current_package_status": audit.get(
+                            "package_validation", {}
+                        ).get("status", "not provided"),
+                    }
+                )
                 latency = audit.get("latency", [])
                 if latency:
                     st.markdown("**Core-only Latency · ms**")
@@ -241,9 +277,15 @@ def render_benchmark_lab():
                         "input_sha256": audit.get("input_sha256"),
                     }
                 )
+                for image in audit.get("figures", []):
+                    st.image(
+                        image,
+                        caption=Path(image).stem
+                        + " · Tuning 잠정 집계 / Manifest SHA256 대조 / Core-only latency는 ms",
+                    )
         except (OSError, ValueError, KeyError, TypeError) as exc:
             st.warning(f"Tuning audit: {exc}")
-        for name in ("audit_summary.json", "plot_audit.json"):
+        for name in ("plot_audit.json",):
             candidate = tuning / name
             if not candidate.is_file():
                 st.caption(name + " · 결과 없음")
@@ -264,7 +306,7 @@ def render_benchmark_lab():
             except (OSError, ValueError, TypeError) as exc:
                 st.warning(f"{name}: {exc}")
         st.caption(
-            "Tuning/Holdout 비교 차트는 두 split의 인계가 검증된 후 제작합니다. 누락 자료를 대체하지 않습니다."
+            "Tuning과 Holdout은 서로 다른 표본·시점의 실험입니다. Trial 수·성과 수치를 합산하지 않습니다."
         )
     with st.expander("역사적 35샘플 replay · 별도 실험"):
         st.caption(

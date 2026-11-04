@@ -6,7 +6,7 @@ from pathlib import Path
 
 import streamlit as st
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path[:0] = [str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parents[1])]
 from plugin_view import evidence_status, render_plugin_runtime
 from service import list_runs, query_events, run_scenario
 from workbench import (
