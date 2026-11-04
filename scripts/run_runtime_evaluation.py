@@ -82,7 +82,7 @@ def _environment() -> dict:
     ]
     paths = sorted(set(paths) | {
         path.relative_to(ROOT_DIR).as_posix()
-        for source_dir in ("src/runtime", "src/security", "src/evidence", "shared")
+        for source_dir in ("src/runtime", "src/security", "src/evidence", "src/evaluation", "shared", "scripts")
         for path in (ROOT_DIR / source_dir).rglob("*.py")
     })
     return {
@@ -313,14 +313,57 @@ def run_experiment(
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True, help="New output directory; must not exist")
-    parser.add_argument("--repeats", type=int, default=30)
+    parser.add_argument("--repeats", type=int, help="Legacy default: 30; benchmark default: 1")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--block-threshold", type=float, choices=(0.80, 0.92), default=0.80)
+    parser.add_argument("--block-threshold", type=float, choices=(0.80, 0.92),
+                        help="Legacy fixture threshold; default 0.80")
+    parser.add_argument("--benchmark-manifest", type=Path,
+                        help="Opt into an external payload replay; preserves the legacy report path")
+    parser.add_argument("--dataset-cache", type=Path,
+                        help="Local pinned source files from scripts.fetch_benchmark_sources")
+    parser.add_argument("--thresholds", type=float, nargs="+",
+                        help="Benchmark sweep thresholds; default .70 .75 .80 .85 .90 .92 .95 .98")
+    parser.add_argument("--fpr-tolerance", type=float, default=0.05,
+                        help="Maximum absolute FPR difference for descriptive B/C comparisons")
     args = parser.parse_args(argv)
-    report = run_experiment(args.output_dir, repeats=args.repeats, seed=args.seed,
-                            block_threshold=args.block_threshold)
+    if args.benchmark_manifest:
+        if args.block_threshold is not None:
+            parser.error("use --thresholds with --benchmark-manifest, not --block-threshold")
+        if args.dataset_cache is None:
+            parser.error("--benchmark-manifest requires --dataset-cache")
+        from evaluation.benchmark_adapter import load_benchmark_samples
+        from evaluation.benchmark_report import DEFAULT_THRESHOLDS, run_benchmark_sweep
+
+        samples = load_benchmark_samples(args.benchmark_manifest, args.dataset_cache)
+        manifest = json.loads(args.benchmark_manifest.read_text(encoding="utf-8"))
+        thresholds = args.thresholds if args.thresholds is not None else DEFAULT_THRESHOLDS
+        repeats = args.repeats if args.repeats is not None else 1
+        command = (
+            "uv run --group demo python -m scripts.run_runtime_evaluation "
+            f'--benchmark-manifest "{args.benchmark_manifest}" '
+            f'--dataset-cache "{args.dataset_cache}" --output-dir "NEW_OUTPUT_DIRECTORY" '
+            f"--thresholds {' '.join(f'{value:g}' for value in thresholds)} "
+            f"--repeats {repeats} --seed {args.seed} --fpr-tolerance {args.fpr_tolerance:g}"
+        )
+        report = run_benchmark_sweep(
+            args.output_dir, scenarios=[sample.to_scenario() for sample in samples],
+            manifest=manifest, thresholds=thresholds, repeats=repeats, seed=args.seed,
+            fpr_tolerance=args.fpr_tolerance, reproduction_command=command,
+        )
+        print("EXTERNAL PAYLOAD REPLAY / REAL MIDDLEWARE / MOCK TOOLS / NO LLM")
+        print(f"Status: {report['status']}; {len(samples)} unique samples; "
+              f"{len(thresholds)} thresholds; {repeats} repeats per sample/mode/threshold")
+        print("External ASR is unavailable: no model response or attack-goal judge.")
+        print(f"Artifacts: {args.output_dir.resolve()}")
+        return
+    if args.dataset_cache is not None or args.thresholds is not None:
+        parser.error("--dataset-cache and --thresholds require --benchmark-manifest")
+    block_threshold = args.block_threshold if args.block_threshold is not None else 0.80
+    report = run_experiment(args.output_dir, repeats=args.repeats if args.repeats is not None else 30,
+                            seed=args.seed,
+                            block_threshold=block_threshold)
     print(SOURCE)
-    print(f"{report['experiment']['purpose']}: threshold={args.block_threshold:.2f}; "
+    print(f"{report['experiment']['purpose']}: threshold={block_threshold:.2f}; "
           f"{report['experiment']['total_trials']} completed trials")
     for mode, result in report["metrics"].items():
         count = report["sample_counts"][mode]
