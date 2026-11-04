@@ -10,7 +10,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from plugin_view import evidence_status, render_plugin_runtime
 from reports import render_evaluation
 from service import list_runs, query_events, run_scenario
-from workbench import render_attack_catalog, render_benchmark_lab
+from workbench import (
+    render_attack_catalog,
+    render_benchmark_lab,
+    render_live_comparison,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +160,7 @@ live, evaluation, attacks, benchmark = st.tabs([
 ])
 with live:
     render_live()
+    render_live_comparison()
 with evaluation:
     render_evaluation()
 with attacks:

@@ -181,6 +181,8 @@ def render_pipeline(config, events, cursor):
         st.write("Linked mode에서는 앞 단계 Guard 결과가 SecurityContext에 누적되어 후속 판단에 반영됩니다.")
         st.caption(f"구조 설명 · 현재 코드 coordination: {config['mode']} · 선택 run의 저장 설정이 아닙니다.")
         st.dataframe(config["plugins"], hide_index=True, width="stretch")
+        st.caption("Custom Guard 시연: examples/custom_guard.py의 BlockedTermGuard를 register_guard()로 등록합니다. 운영 서비스의 hot-swap 기능이 아닙니다.")
+        st.code("uv run python examples/custom_guard.py\nuv run --group demo pytest tests/contract/test_custom_guard_plugin.py -q", language="powershell")
         st.caption("현재 구성은 기존 make_security_factory / PolicyConfig에서 읽습니다. 과거 run의 Enabled / coordination을 추론하지 않습니다.")
         st.caption("SecurityContext의 inspection_mode / STRICT 전환은 Evidence에 저장되지 않아 표시하지 않습니다.")
 

@@ -54,6 +54,17 @@ def query_events(run_id):
 
 
 def run_scenario(key):
+    return _run_scenario(key)
+
+
+def run_comparison(key):
+    """Run the same synthetic request with isolated B/C policies and identities."""
+    from security.policy.conditions import load_condition
+
+    return {mode: _run_scenario(key, load_condition(mode)) for mode in ("B", "C")}
+
+
+def _run_scenario(key, condition=None):
     scenario = SCENARIOS[key]
     repo = repository()
     collector = EvidenceCollector(repo)
@@ -78,14 +89,17 @@ def run_scenario(key):
             tool_arguments=arguments,
         ),
     )
+    if condition is None:
+        factory = make_security_factory(PolicyConfig(policy_version="sprint2-demo"), collector)
+    else:
+        from security.policy.conditions import make_condition_security_factory
+
+        factory = make_condition_security_factory(condition, collector)
     result = RuntimeAdapter().run(
         request,
         tools={"read_file": read, "send_email": email},
         evidence=collector,
-        security_factory=make_security_factory(
-            PolicyConfig(policy_version="sprint2-demo"),
-            collector,
-        ),
+        security_factory=factory,
     )
     snapshot = {
         "created_at": datetime.now(UTC).isoformat(),
