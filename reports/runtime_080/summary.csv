@@ -1,0 +1,4 @@
+mode,experiment_condition,total_runs,attack_scenarios,benign_scenarios,asr,tsr,fpr,block_rate,average_latency_ms,p50_latency_ms,p95_latency_ms,policy_version,total_trials,completed_trials,distinct_attack_scenarios,distinct_benign_scenarios,asr_numerator,asr_denominator,tsr_numerator,tsr_denominator,fpr_numerator,fpr_denominator,block_rate_numerator,block_rate_denominator,latency_samples
+A,A,60,30,30,1.0,1.0,0.0,0.0,63.45299001162251,62.885149964131415,69.83532512094826,v0.1.0-cond-a-no-guard,60,60,1,1,30,30,30,30,0,30,0,60,60
+B,B,60,30,30,0.0,1.0,0.0,0.5,92.13356998904298,89.67660006601363,110.54737510858102,v0.1.0-cond-b-independent,60,60,1,1,0,30,30,30,0,30,30,60,60
+C,C,60,30,30,0.0,1.0,0.0,0.5,91.00154500144224,89.02279997710139,115.88926492258905,v0.1.0-cond-c-linked,60,60,1,1,0,30,30,30,0,30,30,60,60
