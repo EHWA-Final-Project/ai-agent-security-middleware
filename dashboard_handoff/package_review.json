@@ -1,0 +1,20 @@
+{
+  "scope": "packaging integrity and sharing-content review; no new benchmark execution",
+  "runtime_execution_verified": false,
+  "tensor_trust_rights": "unresolved",
+  "redistribution_permission_confirmed": false,
+  "holdout_figure_pairs": 4,
+  "tuning_figure_pairs": 4,
+  "holdout_figure_source_hashes_matched": true,
+  "holdout_source_archive_and_raw_hashes_matched": true,
+  "tuning_plot_input_hashes_matched": true,
+  "tuning_audit_plot_cells_and_aggregate_csvs_agree": true,
+  "personal_path_sample_id_credential_scan_matches": 0,
+  "source_files_unchanged": true,
+  "source_files_hash_checked": 30,
+  "limitations": [
+    "Content screening and aggregate-only packaging are not redistribution permission.",
+    "Original input hashes may refer to deliberately excluded raw files.",
+    "Figure review uses SVG text/structure and PNG metadata plus visual review."
+  ]
+}

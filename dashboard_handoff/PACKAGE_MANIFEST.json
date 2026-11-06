@@ -1,0 +1,252 @@
+{
+  "runtime_execution_verified": false,
+  "tensor_trust_rights": "unresolved",
+  "redistribution_permission_confirmed": false,
+  "original_for_wana_zip_sha256": "486f3593872018429dc97a78ec65cca5d2a5178cd95220896533f205974e5960",
+  "transformations": [
+    "/commands omitted",
+    "/guards/false_positive_ids omitted",
+    "/input_sha256 hash key replaced by source basename",
+    "/input_sha256 hash key replaced by source basename",
+    "/input_sha256 hash key replaced by source basename",
+    "/input_sha256 hash key replaced by source basename",
+    "/input_sha256 hash key replaced by source basename",
+    "/input_sha256 hash key replaced by source basename",
+    "/input_sha256 hash key replaced by source basename",
+    "/input_sha256 hash key replaced by source basename",
+    "/input_sha256 hash key replaced by source basename",
+    "/pilots/jailbreak_judges reviewer identity withheld",
+    "/input_sha256 hash key replaced by source basename",
+    "/input_sha256 hash key replaced by source basename",
+    "/input_sha256 hash key replaced by source basename",
+    "/input_sha256 hash key replaced by source basename",
+    "README.md replaced byte-for-byte by user-supplied README_Evaluation_Dashboard_KR.md; prior stale README hash corrected. All other payload files preserved. Existing graph notes added to manifest/checksum coverage: holdout/figures/POSTER_GRAPH_NOTES.md, tuning/figures/TUNING_GRAPH_NOTES_KR.md"
+  ],
+  "files": [
+    {
+      "path": "holdout/sweep_holdout_summary.csv",
+      "sha256": "c985924bc0f126432efc0ada6f5743705a9af3350e5f0b810e2c5a6223bd6a21",
+      "source": "for-wana.zip!for-wana/sweep_holdout_summary.csv",
+      "source_sha256": "c985924bc0f126432efc0ada6f5743705a9af3350e5f0b810e2c5a6223bd6a21",
+      "modified": false
+    },
+    {
+      "path": "holdout/sweep_policy_holdout_summary.csv",
+      "sha256": "8ad5e25061bdd0fc2a181abf8c74aa378bddb51e82d4820d9026a88c20e0ff33",
+      "source": "for-wana.zip!for-wana/sweep_policy_holdout_summary.csv",
+      "source_sha256": "8ad5e25061bdd0fc2a181abf8c74aa378bddb51e82d4820d9026a88c20e0ff33",
+      "modified": false
+    },
+    {
+      "path": "holdout/c_cause_holdout.csv",
+      "sha256": "1449a7b333c5533b78ee09fe387c6941bdd2cee960d8d219fcf74c527c8a6700",
+      "source": "for-wana.zip!for-wana/c_cause_holdout.csv",
+      "source_sha256": "1449a7b333c5533b78ee09fe387c6941bdd2cee960d8d219fcf74c527c8a6700",
+      "modified": false
+    },
+    {
+      "path": "holdout/holdout_results.json",
+      "sha256": "6a4621cd152ae58fb412d62b7f9856ce86af23745675fac6b8bc053b8add1482",
+      "source": "for-wana.zip!for-wana/holdout_results.json",
+      "source_sha256": "b0b9fc9e28d25c82933b2a05c974040f9b660f3b6a0539097d7dcf50ab05e6b9",
+      "modified": true
+    },
+    {
+      "path": "holdout/run_record_holdout.json",
+      "sha256": "622fb03dd6f462d94b490b54fe2ce4ff0f10314b2875b004a2eafe7dc08af52c",
+      "source": "for-wana.zip!for-wana/run_record_holdout.json",
+      "source_sha256": "e0cc808544bb80505ba013fc20290a4978f8fe02cc3205418326de5deeca0068",
+      "modified": true
+    },
+    {
+      "path": "holdout/raw_verification.json",
+      "sha256": "839c4c07b138b598d3949283f086569652a34c722f2c0f634456a68823129cc9",
+      "source": "holdout_manual_raw_verified/raw_verification.json",
+      "source_sha256": "022606006e0a3f2a1ce7c9e03662860ad7cc4e31fe77ae68170a6c54c78b10a5",
+      "modified": true
+    },
+    {
+      "path": "holdout/figures/aggregate_validation.json",
+      "sha256": "cc99136ca508dd1f574ebb593cd9c18d7156711689594f43be182e34c81ee74e",
+      "source": "holdout_manual_raw_verified/figures/aggregate_validation.json",
+      "source_sha256": "722f4509ce0c13d3fefdabeda20f393a962c9f458cd3a06ae14fa3533edffa91",
+      "modified": true
+    },
+    {
+      "path": "holdout/figures/holdout_attack_tool_execution.png",
+      "sha256": "aff3c0ee35f2c21f0cf6fb48d2b7fe04ddc9a5fe59b74123d2c2493ad0795a94",
+      "source": "holdout_manual_raw_verified/figures/holdout_attack_tool_execution.png",
+      "source_sha256": "aff3c0ee35f2c21f0cf6fb48d2b7fe04ddc9a5fe59b74123d2c2493ad0795a94",
+      "modified": false
+    },
+    {
+      "path": "holdout/figures/holdout_attack_tool_execution.svg",
+      "sha256": "d875db54273317795199885d1ca387ebd43e093c64183f9288c5f8fb81c85767",
+      "source": "holdout_manual_raw_verified/figures/holdout_attack_tool_execution.svg",
+      "source_sha256": "d875db54273317795199885d1ca387ebd43e093c64183f9288c5f8fb81c85767",
+      "modified": false
+    },
+    {
+      "path": "holdout/figures/holdout_benign_outcomes.png",
+      "sha256": "0fcf21ea672dee4ce67ac49c339b4e5196d70f37f821625a51041bb2f026240c",
+      "source": "holdout_manual_raw_verified/figures/holdout_benign_outcomes.png",
+      "source_sha256": "0fcf21ea672dee4ce67ac49c339b4e5196d70f37f821625a51041bb2f026240c",
+      "modified": false
+    },
+    {
+      "path": "holdout/figures/holdout_benign_outcomes.svg",
+      "sha256": "0ef56dbddf0efc641f177532d483c3733b580cb4f10a75ba8c39ca631c7b0e98",
+      "source": "holdout_manual_raw_verified/figures/holdout_benign_outcomes.svg",
+      "source_sha256": "0ef56dbddf0efc641f177532d483c3733b580cb4f10a75ba8c39ca631c7b0e98",
+      "modified": false
+    },
+    {
+      "path": "holdout/figures/holdout_c_block_causes.png",
+      "sha256": "04f1664db8b1187a8e5b93e7089ad164a278f9da60f35fb5c9c05aaa99d95fda",
+      "source": "holdout_manual_raw_verified/figures/holdout_c_block_causes.png",
+      "source_sha256": "04f1664db8b1187a8e5b93e7089ad164a278f9da60f35fb5c9c05aaa99d95fda",
+      "modified": false
+    },
+    {
+      "path": "holdout/figures/holdout_c_block_causes.svg",
+      "sha256": "4fe09964522c84675ecf74a695ff7608c5c077179e9aaac1632c95789e35711b",
+      "source": "holdout_manual_raw_verified/figures/holdout_c_block_causes.svg",
+      "source_sha256": "4fe09964522c84675ecf74a695ff7608c5c077179e9aaac1632c95789e35711b",
+      "modified": false
+    },
+    {
+      "path": "holdout/figures/holdout_tool_policy.png",
+      "sha256": "0eced96a707726ae93119eb1cb3d8ae99e170621d3b7d7d2a101f54c236e7e5a",
+      "source": "holdout_manual_raw_verified/figures/holdout_tool_policy.png",
+      "source_sha256": "0eced96a707726ae93119eb1cb3d8ae99e170621d3b7d7d2a101f54c236e7e5a",
+      "modified": false
+    },
+    {
+      "path": "holdout/figures/holdout_tool_policy.svg",
+      "sha256": "51997214ab9b63d48d3445559e4218c56d36ddac61ea5a6ac618a0e3b78e3b46",
+      "source": "holdout_manual_raw_verified/figures/holdout_tool_policy.svg",
+      "source_sha256": "51997214ab9b63d48d3445559e4218c56d36ddac61ea5a6ac618a0e3b78e3b46",
+      "modified": false
+    },
+    {
+      "path": "tuning/recomputed_sweep.csv",
+      "sha256": "b05a8789c5716fb39868c401b47c04864a4d9d0f34bcea48a40e9113c0ec744f",
+      "source": "fatin-tuning-handoff-audit/recomputed_sweep.csv",
+      "source_sha256": "b05a8789c5716fb39868c401b47c04864a4d9d0f34bcea48a40e9113c0ec744f",
+      "modified": false
+    },
+    {
+      "path": "tuning/guard_detection.csv",
+      "sha256": "285cf412b59c30a9baf5f99ad165ffb8aab01601f3528ddcd652faab81831e2d",
+      "source": "fatin-tuning-handoff-audit/guard_detection.csv",
+      "source_sha256": "285cf412b59c30a9baf5f99ad165ffb8aab01601f3528ddcd652faab81831e2d",
+      "modified": false
+    },
+    {
+      "path": "tuning/core_latency.csv",
+      "sha256": "764e18f584d3a14f94057183b98bb05f3c5ca5c73485903ac0ddcfbef25d47d4",
+      "source": "fatin-tuning-handoff-audit/core_latency.csv",
+      "source_sha256": "764e18f584d3a14f94057183b98bb05f3c5ca5c73485903ac0ddcfbef25d47d4",
+      "modified": false
+    },
+    {
+      "path": "tuning/audit_summary.json",
+      "sha256": "ae66659f6ec5320236971dcf12736713e222e1520ec17a17e7d64c560e64a9be",
+      "source": "fatin-tuning-handoff-audit/audit_summary.json",
+      "source_sha256": "a8e88652e52a00d2da408879c888079528f0e4b1fe3aa5c59d067ab3b5158f06",
+      "modified": true
+    },
+    {
+      "path": "tuning/plot_audit.json",
+      "sha256": "db85ce019fede70d45868fe486bb300a33bdc462a55344c14056f92e4aea5394",
+      "source": "fatin-tuning-figures-v2/plot_audit.json",
+      "source_sha256": "4818ebe1c1c19d0941226c70b5ada6bc181cb0ac977f33a6c50c49c483f6f68c",
+      "modified": true
+    },
+    {
+      "path": "tuning/figures/attack_tool_execution.png",
+      "sha256": "0aa244936f8020bbd76ff1d98d67bd7ae0a3e1185462cf7ba94d3b7835037de5",
+      "source": "fatin-tuning-figures-v2/attack_tool_execution.png",
+      "source_sha256": "0aa244936f8020bbd76ff1d98d67bd7ae0a3e1185462cf7ba94d3b7835037de5",
+      "modified": false
+    },
+    {
+      "path": "tuning/figures/attack_tool_execution.svg",
+      "sha256": "0428c552329399407991873632be8efa4d80a13d6e2be5d7da98e37577481fe7",
+      "source": "fatin-tuning-figures-v2/attack_tool_execution.svg",
+      "source_sha256": "0428c552329399407991873632be8efa4d80a13d6e2be5d7da98e37577481fe7",
+      "modified": false
+    },
+    {
+      "path": "tuning/figures/benign_warn_block.png",
+      "sha256": "fcb1654f1d9d3dad7bd041c66ee99d32a32560d2d7165075c54fae5d3b325a45",
+      "source": "fatin-tuning-figures-v2/benign_warn_block.png",
+      "source_sha256": "fcb1654f1d9d3dad7bd041c66ee99d32a32560d2d7165075c54fae5d3b325a45",
+      "modified": false
+    },
+    {
+      "path": "tuning/figures/benign_warn_block.svg",
+      "sha256": "1af8a2774658863c3559f5a4f84b929c2beab78ef0644b40f3d160353f9bf652",
+      "source": "fatin-tuning-figures-v2/benign_warn_block.svg",
+      "source_sha256": "1af8a2774658863c3559f5a4f84b929c2beab78ef0644b40f3d160353f9bf652",
+      "modified": false
+    },
+    {
+      "path": "tuning/figures/core_latency.png",
+      "sha256": "e4906e3d082fbd2ce0210b50f825b2b2de3c0fa3a6f1b7f2205ef7524af979bb",
+      "source": "fatin-tuning-figures-v2/core_latency.png",
+      "source_sha256": "e4906e3d082fbd2ce0210b50f825b2b2de3c0fa3a6f1b7f2205ef7524af979bb",
+      "modified": false
+    },
+    {
+      "path": "tuning/figures/core_latency.svg",
+      "sha256": "b952fe5c3bdf8a4eb5274b51070591f25001f18b83c289e17bfc19ae77155c6a",
+      "source": "fatin-tuning-figures-v2/core_latency.svg",
+      "source_sha256": "b952fe5c3bdf8a4eb5274b51070591f25001f18b83c289e17bfc19ae77155c6a",
+      "modified": false
+    },
+    {
+      "path": "tuning/figures/direct_indirect.png",
+      "sha256": "a3f9776ddfe40cc82ff1a7f7efea2ddf11d2d3e991a89278e9c870cea18a6a64",
+      "source": "fatin-tuning-figures-v2/direct_indirect.png",
+      "source_sha256": "a3f9776ddfe40cc82ff1a7f7efea2ddf11d2d3e991a89278e9c870cea18a6a64",
+      "modified": false
+    },
+    {
+      "path": "tuning/figures/direct_indirect.svg",
+      "sha256": "4e1aa265d61752491a3e741936267b8103130bb75fca54915a7d336669e9eb27",
+      "source": "fatin-tuning-figures-v2/direct_indirect.svg",
+      "source_sha256": "4e1aa265d61752491a3e741936267b8103130bb75fca54915a7d336669e9eb27",
+      "modified": false
+    },
+    {
+      "path": "README.md",
+      "sha256": "7eaacef77907721bf4f49e1daee31712e6924f8de6432fd210e8877b7b8f0737",
+      "source": "README_Evaluation_Dashboard_KR.md",
+      "source_sha256": "7eaacef77907721bf4f49e1daee31712e6924f8de6432fd210e8877b7b8f0737",
+      "modified": false
+    },
+    {
+      "path": "package_review.json",
+      "sha256": "b0dbc473405ac2201ce2089199b8b5f7d4b73afc79837e9b25e6f04ff68ca5aa",
+      "source": "Packaging checks",
+      "source_sha256": "b0dbc473405ac2201ce2089199b8b5f7d4b73afc79837e9b25e6f04ff68ca5aa",
+      "modified": false
+    },
+    {
+      "path": "holdout/figures/POSTER_GRAPH_NOTES.md",
+      "sha256": "638b36268e616ec254b102af59b58477dd46b27a9e7280f471a9b83ee8f49522",
+      "source": "Existing package/holdout/figures/POSTER_GRAPH_NOTES.md",
+      "source_sha256": "638b36268e616ec254b102af59b58477dd46b27a9e7280f471a9b83ee8f49522",
+      "modified": false
+    },
+    {
+      "path": "tuning/figures/TUNING_GRAPH_NOTES_KR.md",
+      "sha256": "d46871fd7fccb57b5635d3319543da7764fc18dd51d4752effe9ba1b6343af98",
+      "source": "Existing package/tuning/figures/TUNING_GRAPH_NOTES_KR.md",
+      "source_sha256": "d46871fd7fccb57b5635d3319543da7764fc18dd51d4752effe9ba1b6343af98",
+      "modified": false
+    }
+  ],
+  "note": "Manifest excludes itself and SHA256SUMS.txt; checksum file covers this manifest."
+}
