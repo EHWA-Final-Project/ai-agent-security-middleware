@@ -1,0 +1,13 @@
+dataset,subset,label,guard,n,flagged,rate
+bipia,attack-code,attack,context,150,27,0.18
+bipia,attack-text,attack,context,225,47,0.2088888888888889
+bipia,clean-context-code,benign,context,50,0,0.0
+bipia,clean-context-email,benign,context,45,0,0.0
+bipia,clean-context-table,benign,context,99,0,0.0
+bipia,question-email,benign,input,37,0,0.0
+bipia,question-table,benign,input,899,0,0.0
+notinject,one,benign,input,59,0,0.0
+notinject,three,benign,input,52,0,0.0
+notinject,two,benign,input,57,0,0.0
+tensor-trust,extract,attack,input,205,104,0.5073170731707317
+tensor-trust,hijack,attack,input,240,94,0.39166666666666666
