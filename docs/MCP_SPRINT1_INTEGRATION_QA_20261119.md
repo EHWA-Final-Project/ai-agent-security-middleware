@@ -281,3 +281,37 @@ Adaptive D. 기존 11/19 ‘마스킹 수정 필수’ 요청은 정책 합의�
 cd ~/OneDrive/Desktop/ai-agent-security-middleware/.worktrees/mcp-sprint1-dev-final-20261120
 env -u VIRTUAL_ENV uv run --frozen --group demo pytest -q -s tests/integration/test_mcp_sprint1_cross_boundary.py
 ```
+
+### 2026-11-20 QA PR #40 최종 병합 및 dev 재검증
+
+#40 head `500ce85324263f4c1c6095cc4ac730c65478e6f3`가 본 문서와 실제 MCP 교차 테스트
+두 파일만 추가함을 재확인했다. src/security, Orchestrator, Policy, Runtime, shared DTO,
+pyproject/lock 변경 없음. 별도 #40 worktree에 미커밋 변경 없음도 확인했다.
+
+- 병합 전 #40 전체 pytest: **725 passed, 0 failed, 0 skipped**, 57.08초.
+- 병합 전 Ruff / diff check: 통과.
+- 병합 직전 Open/dev 대상, expected head 동일, MERGEABLE/CLEAN, 체크 목록 비어 있음 확인.
+- #40 Merge SHA 및 최종 dev HEAD: **`289933e10971e342bf39d757f63053ba0e90a208`**.
+- #39는 미병합 Draft로 보존. main/기존 로컬 worktree/Evidence 미변경.
+- 새 worktree `.worktrees/mcp-qa40-final-20261120`에서 origin/dev 기반 frozen sync 실행.
+- 병합 후 최종 dev 전체 pytest: **725 passed, 0 failed, 0 skipped**, 74.69초.
+- 병합 후 Ruff: **All checks passed**, diff check 통과.
+- 병합 후 실제 MCP enforcement + cross-boundary 별도 실행: **8 passed, 0 failed, 0 skipped**,
+  10.05초. 정상 호출 1회/사전 차단 0회/secret 실행 후 차단 1회와 Evidence 정합성 유지.
+
+실제 실행 명령(각 worktree 루트, Windows PowerShell):
+
+```powershell
+uv sync --frozen --group dev --group demo
+.venv\Scripts\python.exe -m pytest -q
+.venv\Scripts\ruff.exe check .
+git diff --check
+.venv\Scripts\python.exe -m pytest -q -s tests/integration/test_mcp_enforcement.py tests/integration/test_mcp_sprint1_cross_boundary.py
+```
+
+교수님 CLI는 별도 `demo/mcp-professor-20261120` 브랜치에서 기존 create_demo_server,
+discover_tools, RuntimeAdapter, B/C Security factory를 그대로 사용한다.
+`uv run --frozen --group demo python scripts/demo_mcp_sprint1.py --condition C` 및 B를
+실제 실행해 정상 ALLOW/사전 BLOCK/사후 출력 BLOCK 세 사례와 SQLite 정합성 확인.
+판정을 하드코딩해 주입하지 않으며 기존 정책·threshold·policy_version 변경 없음.
+발표 문서는 `docs/MCP_SPRINT1_PROFESSOR_DEMO_20261120.md`에 별도로 준비했다.
