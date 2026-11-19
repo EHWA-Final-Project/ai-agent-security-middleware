@@ -65,7 +65,7 @@ def select_output(decision, execution):
     output = deepcopy(execution.output)
     if decision.sanitized_output is not None:
         if (
-            execution.tool_name != "read_file"
+            execution.tool_name.rsplit("/", 1)[-1] != "read_file"
             or not isinstance(output, dict)
             or "content" not in output
         ):
