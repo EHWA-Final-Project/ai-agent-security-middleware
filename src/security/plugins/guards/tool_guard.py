@@ -24,6 +24,13 @@ Orchestrator가 Stage.TOOL을 넣지 않는다).
 * ``delete_file`` - ``allowed_tools``와 ``allowed_path_prefixes`` 설정 필요
 * ``transfer_funds`` / ``execute_code``는 항상 WARN을 유지한다.
 
+MCP ``server/tool`` 이름(예: ``demo/send_email``):
+
+* 민감 Tool 판별과 범위 판정은 base 이름(``send_email``)으로 한다.
+* ``allowed_tools`` 소속 확인은 전체 이름으로 한다. 다른 서버의 같은 이름 Tool은
+  허용되지 않는다.
+* 정책이 없거나 ``allowed_tools``가 없으면 ``server/tool`` 호출은 기본 거부(BLOCK)한다.
+
 Runtime의 candidate dict는 ``tool_arguments``를, 공용 fixture는 ``args``를 쓰며
 둘 다 읽는다.
 """
@@ -37,6 +44,7 @@ from typing import Any
 from enums import AttackSubtype, Decision, GuardExecutionStatus, Stage
 from schemas import RuntimeObservation, SecurityContext, SecurityResult
 
+from security.plugins.guards._tool_names import base_tool_name, is_qualified
 from security.plugins.interface import GuardPlugin
 
 _SENSITIVE_TOOLS = {
@@ -203,9 +211,10 @@ class ToolGuard(GuardPlugin):
         policy = self._policy
         if policy is None or policy.allowed_tools is None or tool_name not in policy.allowed_tools:
             return False
-        if tool_name == "send_email":
+        base = base_tool_name(tool_name)
+        if base == "send_email":
             return policy.allowed_recipient_domains is not None
-        if tool_name == "delete_file":
+        if base == "delete_file":
             return policy.allowed_path_prefixes is not None
         return False
 
@@ -229,13 +238,19 @@ class ToolGuard(GuardPlugin):
 
         tool_candidate = observation.tool_candidate or {}
         tool_name = tool_candidate.get("tool_name")
+        base_name = base_tool_name(tool_name)
+
+        # MCP(server/tool) 호출은 기본 거부: 허용 목록(정책)이 없으면 실행하지 않는다.
+        if is_qualified(tool_name) and (self._policy is None or self._policy.allowed_tools is None):
+            return self._violation(observation, start, "tool_guard.mcp_policy_missing", tool_name,
+                                   reason="qualified tool name requires an allowlist policy")
 
         violation = self._policy_violation(observation, start, tool_name, _arguments(tool_candidate))
         if violation is not None:
             return violation
 
-        if tool_name in _SENSITIVE_TOOLS and self._authorised_in_scope(tool_name):
-            missing = self._missing_required(tool_name, _arguments(tool_candidate))
+        if base_name in _SENSITIVE_TOOLS and self._authorised_in_scope(tool_name):
+            missing = self._missing_required(base_name, _arguments(tool_candidate))
             if missing is not None:
                 return self._violation(observation, start, "tool_guard.invalid_arguments", tool_name,
                                        argument=missing, reason="missing required argument")
@@ -244,7 +259,7 @@ class ToolGuard(GuardPlugin):
                 evidence=[{"tool_name": tool_name, "in_policy": True}],
             )
 
-        if tool_name in _SENSITIVE_TOOLS:
+        if base_name in _SENSITIVE_TOOLS:
             return self._result(
                 observation, start,
                 risk=0.6, decision=Decision.WARN, rule_ids=["tool_guard.sensitive_tool_invocation"],
