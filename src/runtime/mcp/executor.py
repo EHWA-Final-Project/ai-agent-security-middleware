@@ -2,11 +2,11 @@
 
 from typing import Any
 
+from anyio.from_thread import BlockingPortal
 from mcp import ClientSession
 
 from runtime.dto import ToolCandidate
 
-from anyio.from_thread import BlockingPortal
 
 class MCPToolExecutor:
     """Execute a registered MCP tool through a client connection."""
