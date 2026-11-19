@@ -11,6 +11,7 @@ from enums import AttackSubtype, Decision, GuardExecutionStatus, Stage
 from schemas.runtime import RuntimeObservation
 from schemas.security import SecurityContext, SecurityResult
 
+from security.plugins.guards._tool_names import base_tool_name
 from security.plugins.interface import GuardPlugin
 
 _SECRET_PATTERNS = [
@@ -22,6 +23,7 @@ _SECRET_PATTERNS = [
 
 #: tool_name -> key in ExecutionResult.output holding checkable text.
 #: A tool not listed here is treated as having nothing to check.
+#: Looked up by base name, so ``demo/read_file`` is checked like ``read_file``.
 _TOOL_TEXT_KEY = {
     "read_file": "content",
 }
@@ -48,7 +50,7 @@ def _tool_output_text(context: SecurityContext) -> str | None:
         return str(output)
 
     tool_name = context.execution_result.tool_name
-    text_key = _TOOL_TEXT_KEY.get(tool_name or "")
+    text_key = _TOOL_TEXT_KEY.get(base_tool_name(tool_name) or "")
     if text_key is None:
         return None
     text = output.get(text_key)
