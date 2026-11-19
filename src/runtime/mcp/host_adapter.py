@@ -1,7 +1,7 @@
 """MCP Host Adapter for registering namespaced tools."""
 
-from mcp import ClientSession
 from anyio.from_thread import BlockingPortal
+from mcp import ClientSession
 
 from runtime.mcp.executor import MCPToolExecutor
 

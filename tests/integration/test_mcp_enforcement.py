@@ -3,27 +3,23 @@
 import os
 import sys
 
+from anyio.from_thread import start_blocking_portal
+from enums import Decision
+from mcp import ClientSession
+from mcp.client.stdio import StdioServerParameters, stdio_client
+from schemas import SecurityDecision
+
 from evidence.collector import EvidenceCollector
 from evidence.sqlite_repository import SQLiteEvidenceRepository
-
+from runtime.adapter import RuntimeAdapter
+from runtime.dto import RuntimeRequest, ToolRequest
+from runtime.enforcement import Enforcement
+from runtime.mcp.host_adapter import discover_tools
 from security.plugins.guards.tool_guard import ToolPolicy
 from security.policy.conditions import (
     load_condition,
     make_condition_security_factory,
 )
-
-from anyio.from_thread import start_blocking_portal
-from mcp import ClientSession
-from mcp.client.stdio import StdioServerParameters, stdio_client
-
-from runtime.mcp.host_adapter import discover_tools
-
-from enums import Decision
-from schemas import SecurityDecision
-
-from runtime.adapter import RuntimeAdapter
-from runtime.dto import RuntimeRequest, ToolRequest
-from runtime.enforcement import Enforcement
 
 
 def prepare_mcp_call():
@@ -95,47 +91,46 @@ async def run_mcp_enforcement_test(portal):
         },
     )
 
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
+    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        await session.initialize()
 
-            counting = CountingSession(session)
+        counting = CountingSession(session)
 
-            tools = await discover_tools(
-                server_name="demo",
-                session=counting,
-                portal=portal,
-            )
+        tools = await discover_tools(
+            server_name="demo",
+            session=counting,
+            portal=portal,
+        )
 
-            enforcement = Enforcement(tools)
+        enforcement = Enforcement(tools)
 
-            import anyio
+        import anyio
 
-            # 1. BLOCK: MCP Tool must not be called.
-            blocked = prepare_mcp_call()
-            block_result = await anyio.to_thread.run_sync(
-                enforcement.enforce,
-                blocked,
-                make_decision(blocked, Decision.BLOCK),
-            )
+        # 1. BLOCK: MCP Tool must not be called.
+        blocked = prepare_mcp_call()
+        block_result = await anyio.to_thread.run_sync(
+            enforcement.enforce,
+            blocked,
+            make_decision(blocked, Decision.BLOCK),
+        )
 
-            assert counting.call_count == 0
-            assert block_result.executed is False
-            print("BLOCK: MCP 호출 0회 확인")
+        assert counting.call_count == 0
+        assert block_result.executed is False
+        print("BLOCK: MCP 호출 0회 확인")
 
-            # 2. ALLOW: MCP Tool must execute exactly once.
-            allowed = prepare_mcp_call()
-            allow_result = await anyio.to_thread.run_sync(
-                enforcement.enforce,
-                allowed,
-                make_decision(allowed, Decision.ALLOW),
-            )
+        # 2. ALLOW: MCP Tool must execute exactly once.
+        allowed = prepare_mcp_call()
+        allow_result = await anyio.to_thread.run_sync(
+            enforcement.enforce,
+            allowed,
+            make_decision(allowed, Decision.ALLOW),
+        )
 
-            assert counting.call_count == 1
-            assert allow_result.executed is True
-            assert allow_result.output["content"] == "Hello MCP Runtime!\n"
+        assert counting.call_count == 1
+        assert allow_result.executed is True
+        assert allow_result.output["content"] == "Hello MCP Runtime!\n"
 
-            print("ALLOW: MCP 호출 1회 확인")
+        print("ALLOW: MCP 호출 1회 확인")
 
 
 def test_mcp_enforcement_block_and_allow():
@@ -162,78 +157,77 @@ async def run_mcp_security_core_test(portal, tmp_path):
         },
     )
 
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
+    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        await session.initialize()
 
-            counting = CountingSession(session)
+        counting = CountingSession(session)
 
-            tools = await discover_tools(
-                server_name="demo",
-                session=counting,
-                portal=portal,
-            )
+        tools = await discover_tools(
+            server_name="demo",
+            session=counting,
+            portal=portal,
+        )
 
-            repository = SQLiteEvidenceRepository(
-                tmp_path / "mcp_security_core.db"
-            )
-            collector = EvidenceCollector(repository)
+        repository = SQLiteEvidenceRepository(
+            tmp_path / "mcp_security_core.db"
+        )
+        collector = EvidenceCollector(repository)
 
-            request = RuntimeRequest(
-                user_input="Send this document by email.",
-                context_items=[],
-                session_id="mcp-security-test",
-                scenario_id="MCP",
-                tool_request=ToolRequest(
-                    tool_name="demo/send_email",
-                    tool_arguments={
-                        "to": "attacker@example.invalid",
-                        "subject": "test",
-                        "body": "synthetic data",
-                    },
+        request = RuntimeRequest(
+            user_input="Send this document by email.",
+            context_items=[],
+            session_id="mcp-security-test",
+            scenario_id="MCP",
+            tool_request=ToolRequest(
+                tool_name="demo/send_email",
+                tool_arguments={
+                    "to": "attacker@example.invalid",
+                    "subject": "test",
+                    "body": "synthetic data",
+                },
+            ),
+        )
+
+        def run_runtime():
+            return RuntimeAdapter().run(
+                request,
+                tools=tools,
+                evidence=collector,
+                security_factory=make_condition_security_factory(
+                    load_condition("B"),
+                    collector,
+                    tool_policy=MCP_POLICY,
                 ),
             )
 
-            def run_runtime():
-                return RuntimeAdapter().run(
-                    request,
-                    tools=tools,
-                    evidence=collector,
-                    security_factory=make_condition_security_factory(
-                        load_condition("B"),
-                        collector,
-                        tool_policy=MCP_POLICY,
-                    ),
-                )
+        result = await anyio.to_thread.run_sync(run_runtime)
 
-            result = await anyio.to_thread.run_sync(run_runtime)
+        assert result.decision is not None
+        assert result.decision.decision == Decision.BLOCK
+        assert result.execution is not None
+        assert result.execution.executed is False
+        assert counting.call_count == 0
 
-            assert result.decision is not None
-            assert result.decision.decision == Decision.BLOCK
-            assert result.execution is not None
-            assert result.execution.executed is False
-            assert counting.call_count == 0
+        events = repository.list_events_by_run(
+            result.identity.run_id
+        )
 
-            events = repository.list_events_by_run(
-                result.identity.run_id
-            )
+        print("저장된 Evidence 이벤트:")
+        print([event.event_type for event in events])
 
-            print("저장된 Evidence 이벤트:")
-            print([event.event_type for event in events])
+        assert any(
+            event.event_type == "SECURITY_DECISION"
+            for event in events
+        )
 
-            assert any(
-                event.event_type == "SECURITY_DECISION"
-                for event in events
-            )
+        assert any(
+            event.event_type == "EXECUTION_RESULT"
+            for event in events
+        )
 
-            assert any(
-                event.event_type == "EXECUTION_RESULT"
-                for event in events
-            )
-
-            print("Security Core BLOCK 확인")
-            print("MCP 호출 횟수:", counting.call_count)
-            print("SQLite Evidence 이벤트:", len(events))
+        print("Security Core BLOCK 확인")
+        print("MCP 호출 횟수:", counting.call_count)
+        print("SQLite Evidence 이벤트:", len(events))
 
 
 def test_mcp_security_core_blocks_real_tool(tmp_path):
@@ -260,80 +254,79 @@ async def run_mcp_security_core_allow_test(portal, tmp_path):
         },
     )
 
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
+    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        await session.initialize()
 
-            counting = CountingSession(session)
+        counting = CountingSession(session)
 
-            tools = await discover_tools(
-                server_name="demo",
-                session=counting,
-                portal=portal,
-            )
+        tools = await discover_tools(
+            server_name="demo",
+            session=counting,
+            portal=portal,
+        )
 
-            repository = SQLiteEvidenceRepository(
-                tmp_path / "mcp_allow.db"
-            )
-            collector = EvidenceCollector(repository)
+        repository = SQLiteEvidenceRepository(
+            tmp_path / "mcp_allow.db"
+        )
+        collector = EvidenceCollector(repository)
 
-            request = RuntimeRequest(
-                user_input="Read the sample document.",
-                context_items=[],
-                session_id="mcp-allow-test",
-                scenario_id="MCP",
-                tool_request=ToolRequest(
-                    tool_name="demo/read_file",
-                    tool_arguments={
-                        "path": "docs/mcp_allowed.txt"
-                    },
+        request = RuntimeRequest(
+            user_input="Read the sample document.",
+            context_items=[],
+            session_id="mcp-allow-test",
+            scenario_id="MCP",
+            tool_request=ToolRequest(
+                tool_name="demo/read_file",
+                tool_arguments={
+                    "path": "docs/mcp_allowed.txt"
+                },
+            ),
+        )
+
+        def run_runtime():
+            return RuntimeAdapter().run(
+                request,
+                tools=tools,
+                evidence=collector,
+                security_factory=make_condition_security_factory(
+                    load_condition("B"),
+                    collector,
+                    tool_policy=MCP_POLICY,
                 ),
             )
 
-            def run_runtime():
-                return RuntimeAdapter().run(
-                    request,
-                    tools=tools,
-                    evidence=collector,
-                    security_factory=make_condition_security_factory(
-                        load_condition("B"),
-                        collector,
-                        tool_policy=MCP_POLICY,
-                    ),
-                )
+        result = await anyio.to_thread.run_sync(run_runtime)
 
-            result = await anyio.to_thread.run_sync(run_runtime)
+        assert result.decision is not None
+        assert result.decision.decision == Decision.ALLOW
 
-            assert result.decision is not None
-            assert result.decision.decision == Decision.ALLOW
+        assert result.execution is not None
+        assert result.execution.executed is True
 
-            assert result.execution is not None
-            assert result.execution.executed is True
+        assert counting.call_count == 1
 
-            assert counting.call_count == 1
+        assert result.execution.output["content"] == (
+            "Hello MCP Runtime!\n"
+        )
 
-            assert result.execution.output["content"] == (
-                "Hello MCP Runtime!\n"
-            )
+        events = repository.list_events_by_run(
+            result.identity.run_id
+        )
 
-            events = repository.list_events_by_run(
-                result.identity.run_id
-            )
+        assert any(
+            event.event_type == "SECURITY_DECISION"
+            for event in events
+        )
 
-            assert any(
-                event.event_type == "SECURITY_DECISION"
-                for event in events
-            )
+        assert any(
+            event.event_type == "EXECUTION_RESULT"
+            for event in events
+        )
 
-            assert any(
-                event.event_type == "EXECUTION_RESULT"
-                for event in events
-            )
-
-            print("Security Core ALLOW 확인")
-            print("MCP 호출 횟수:", counting.call_count)
-            print("파일 내용:", result.execution.output["content"].strip())
-            print("SQLite Evidence 이벤트:", len(events))
+        print("Security Core ALLOW 확인")
+        print("MCP 호출 횟수:", counting.call_count)
+        print("파일 내용:", result.execution.output["content"].strip())
+        print("SQLite Evidence 이벤트:", len(events))
 
 
 def test_mcp_security_core_allows_real_tool(tmp_path):
@@ -360,57 +353,56 @@ async def run_mcp_out_of_scope_test(portal, tmp_path):
         },
     )
 
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
+    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        await session.initialize()
 
-            counting = CountingSession(session)
+        counting = CountingSession(session)
 
-            tools = await discover_tools(
-                server_name="demo",
-                session=counting,
-                portal=portal,
-            )
+        tools = await discover_tools(
+            server_name="demo",
+            session=counting,
+            portal=portal,
+        )
 
-            repository = SQLiteEvidenceRepository(
-                tmp_path / "mcp_out_of_scope.db"
-            )
-            collector = EvidenceCollector(repository)
+        repository = SQLiteEvidenceRepository(
+            tmp_path / "mcp_out_of_scope.db"
+        )
+        collector = EvidenceCollector(repository)
 
-            request = RuntimeRequest(
-                user_input="Read the restricted document.",
-                context_items=[],
-                session_id="mcp-out-of-scope-test",
-                scenario_id="MCP",
-                tool_request=ToolRequest(
-                    tool_name="demo/read_file",
-                    tool_arguments={
-                        "path": "secrets/private.txt"
-                    },
+        request = RuntimeRequest(
+            user_input="Read the restricted document.",
+            context_items=[],
+            session_id="mcp-out-of-scope-test",
+            scenario_id="MCP",
+            tool_request=ToolRequest(
+                tool_name="demo/read_file",
+                tool_arguments={
+                    "path": "secrets/private.txt"
+                },
+            ),
+        )
+
+        def run_runtime():
+            return RuntimeAdapter().run(
+                request,
+                tools=tools,
+                evidence=collector,
+                security_factory=make_condition_security_factory(
+                    load_condition("B"),
+                    collector,
+                    tool_policy=MCP_POLICY,
                 ),
             )
 
-            def run_runtime():
-                return RuntimeAdapter().run(
-                    request,
-                    tools=tools,
-                    evidence=collector,
-                    security_factory=make_condition_security_factory(
-                        load_condition("B"),
-                        collector,
-                        tool_policy=MCP_POLICY,
-                    ),
-                )
+        result = await anyio.to_thread.run_sync(run_runtime)
 
-            result = await anyio.to_thread.run_sync(run_runtime)
+        assert result.decision.decision == Decision.BLOCK
+        assert result.execution is not None
+        assert result.execution.executed is False
+        assert counting.call_count == 0
 
-            assert result.decision.decision == Decision.BLOCK
-            assert result.execution is not None
-            assert result.execution.executed is False
-            assert counting.call_count == 0
-
-            print("허용 범위 밖 경로 BLOCK 확인")
-            print("MCP 호출 횟수:", counting.call_count)
+        print("허용 범위 밖 경로 BLOCK 확인")
+        print("MCP 호출 횟수:", counting.call_count)
 
 
 def test_mcp_out_of_scope_block(tmp_path):
@@ -436,57 +428,56 @@ async def run_mcp_path_traversal_test(portal, tmp_path):
         },
     )
 
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
+    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        await session.initialize()
 
-            counting = CountingSession(session)
+        counting = CountingSession(session)
 
-            tools = await discover_tools(
-                server_name="demo",
-                session=counting,
-                portal=portal,
-            )
+        tools = await discover_tools(
+            server_name="demo",
+            session=counting,
+            portal=portal,
+        )
 
-            repository = SQLiteEvidenceRepository(
-                tmp_path / "mcp_path_traversal.db"
-            )
-            collector = EvidenceCollector(repository)
+        repository = SQLiteEvidenceRepository(
+            tmp_path / "mcp_path_traversal.db"
+        )
+        collector = EvidenceCollector(repository)
 
-            request = RuntimeRequest(
-                user_input="Read a document using a relative path.",
-                context_items=[],
-                session_id="mcp-path-traversal-test",
-                scenario_id="MCP",
-                tool_request=ToolRequest(
-                    tool_name="demo/read_file",
-                    tool_arguments={
-                        "path": "docs/../secrets/private.txt"
-                    },
+        request = RuntimeRequest(
+            user_input="Read a document using a relative path.",
+            context_items=[],
+            session_id="mcp-path-traversal-test",
+            scenario_id="MCP",
+            tool_request=ToolRequest(
+                tool_name="demo/read_file",
+                tool_arguments={
+                    "path": "docs/../secrets/private.txt"
+                },
+            ),
+        )
+
+        def run_runtime():
+            return RuntimeAdapter().run(
+                request,
+                tools=tools,
+                evidence=collector,
+                security_factory=make_condition_security_factory(
+                    load_condition("B"),
+                    collector,
+                    tool_policy=MCP_POLICY,
                 ),
             )
 
-            def run_runtime():
-                return RuntimeAdapter().run(
-                    request,
-                    tools=tools,
-                    evidence=collector,
-                    security_factory=make_condition_security_factory(
-                        load_condition("B"),
-                        collector,
-                        tool_policy=MCP_POLICY,
-                    ),
-                )
+        result = await anyio.to_thread.run_sync(run_runtime)
 
-            result = await anyio.to_thread.run_sync(run_runtime)
+        assert result.decision.decision == Decision.BLOCK
+        assert result.execution is not None
+        assert result.execution.executed is False
+        assert counting.call_count == 0
 
-            assert result.decision.decision == Decision.BLOCK
-            assert result.execution is not None
-            assert result.execution.executed is False
-            assert counting.call_count == 0
-
-            print("Path Traversal BLOCK 확인")
-            print("MCP 호출 횟수:", counting.call_count)
+        print("Path Traversal BLOCK 확인")
+        print("MCP 호출 횟수:", counting.call_count)
 
 
 def test_mcp_path_traversal_block(tmp_path):
@@ -512,58 +503,57 @@ async def run_mcp_unauthorized_name_test(portal, tmp_path):
         },
     )
 
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
+    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        await session.initialize()
 
-            counting = CountingSession(session)
+        counting = CountingSession(session)
 
-            tools = await discover_tools(
-                server_name="demo",
-                session=counting,
-                portal=portal,
-            )
+        tools = await discover_tools(
+            server_name="demo",
+            session=counting,
+            portal=portal,
+        )
 
-            repository = SQLiteEvidenceRepository(
-                tmp_path / "mcp_unauthorized_name.db"
-            )
-            collector = EvidenceCollector(repository)
+        repository = SQLiteEvidenceRepository(
+            tmp_path / "mcp_unauthorized_name.db"
+        )
+        collector = EvidenceCollector(repository)
 
-            request = RuntimeRequest(
-                user_input="Read a document using an unqualified tool name.",
-                context_items=[],
-                session_id="mcp-unauthorized-name-test",
-                scenario_id="MCP",
-                tool_request=ToolRequest(
-                    tool_name="read_file",
-                    tool_arguments={
-                        "path": "docs/mcp_allowed.txt"
-                    },
+        request = RuntimeRequest(
+            user_input="Read a document using an unqualified tool name.",
+            context_items=[],
+            session_id="mcp-unauthorized-name-test",
+            scenario_id="MCP",
+            tool_request=ToolRequest(
+                tool_name="read_file",
+                tool_arguments={
+                    "path": "docs/mcp_allowed.txt"
+                },
+            ),
+        )
+
+        def run_runtime():
+            return RuntimeAdapter().run(
+                request,
+                tools=tools,
+                evidence=collector,
+                security_factory=make_condition_security_factory(
+                    load_condition("B"),
+                    collector,
+                    tool_policy=MCP_POLICY,
                 ),
             )
 
-            def run_runtime():
-                return RuntimeAdapter().run(
-                    request,
-                    tools=tools,
-                    evidence=collector,
-                    security_factory=make_condition_security_factory(
-                        load_condition("B"),
-                        collector,
-                        tool_policy=MCP_POLICY,
-                    ),
-                )
+        result = await anyio.to_thread.run_sync(run_runtime)
 
-            result = await anyio.to_thread.run_sync(run_runtime)
+        assert result.decision.decision == Decision.BLOCK
+        assert counting.call_count == 0
 
-            assert result.decision.decision == Decision.BLOCK
-            assert counting.call_count == 0
+        if result.execution is not None:
+            assert result.execution.executed is False
 
-            if result.execution is not None:
-                assert result.execution.executed is False
-
-            print("허용되지 않은 Tool 이름 BLOCK 확인")
-            print("MCP 호출 횟수:", counting.call_count)
+        print("허용되지 않은 Tool 이름 BLOCK 확인")
+        print("MCP 호출 횟수:", counting.call_count)
 
 
 def test_mcp_unauthorized_name_block(tmp_path):
