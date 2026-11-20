@@ -13,6 +13,18 @@ failed/skipped 모두 0. Ruff/diff check 통과. 최종 dev 실제 MCP 두 파�
 구별한다. Guard 판정은 기존 B/C 정책에서 계산하며 출력에 쓸 Decision을 미리 주입하지 않는다.
 CLI의 기대 결과 상수는 관측 결과의 성공/실패를 검사하는 용도일 뿐 판정 입력이 아니다.
 
+### 지난 11/6 미팅 이후의 Sprint 1 산출물
+
+11/6에 설명한 MCP 목표 아키텍처 및 고도화 계획을 기준으로, 이번에는 아래 코드와
+실행 증빙을 확보했다. 당시 모든 세부 기능이 없었다고 단정하는 비교는 하지 않는다.
+
+| 담당 영역 | 이번 산출물 |
+| --- | --- |
+| Security / Fatin, #37 | server/tool 호환, 전체 이름 allowlist, 정책 누락 기본 거부, 실제 read_file 응답 검사 |
+| Runtime / 지원, #38 | 실제 SDK stdio Server, Host Adapter list_tools 등록, Executor/Enforcement 연결, 메일 시뮬레이션 |
+| Evaluation / Wana, #36 | 공격/정상 6쌍의 12개 합성 시나리오와 평가 명세. 실모델 평가 수치는 아님 |
+| Integration QA / 지송, #40 | 원본 PR 순차 병합, 실제 MCP 교차 경계·SQLite 정합성 검사, 최종 dev 725 passed와 Ruff |
+
 ## 구현 전후
 
 | 항목 | 이전 Mock 기반 | 이번 실제 MCP SDK PoC |
@@ -28,13 +40,14 @@ CLI의 기대 결과 상수는 관측 결과의 성공/실패를 검사하는 �
 ## 아키텍처 설명용 화면
 
 ```text
-고정된 호출 후보 (실제 LLM 없음)
-  → RuntimeAdapter → Security Core / ToolPolicy
+RuntimeRequest / ToolCandidate (고정 후보, 실제 LLM 없음)
+  → RuntimeAdapter → Security Core: Input → Context → Tool Guard / ToolPolicy
+  → 실행 전 SecurityDecision
     ├─ 사전 BLOCK → Enforcement(executed=false), MCP 호출 0
     └─ ALLOW → Enforcement → MCPToolExecutor → BlockingPortal
                  → SDK ClientSession.call_tool → stdio Demo Server
                  ← 실제 파일 읽기 결과
-                 → OutputGuard → 최종 Decision → Runtime 전달 여부
+                 → OutputGuard → 최종 SecurityDecision → Runtime 전달 여부
   → SQLite Evidence: SECURITY_RESULT / SECURITY_DECISION / EXECUTION_RESULT
 
 시작 시: SDK initialize → list_tools → Host Adapter discover_tools → server/tool 등록
@@ -96,6 +109,7 @@ Tool=demo/read_file | Decision=BLOCK | tools/call=1
 executed=true | output_allowed=false
 forward_output=None
 OutputGuard risk=0.95
+Triggered rules=output_guard.secret_leakage
 SQLite Evidence=PASS | SECURITY_DECISION=1 | EXECUTION_RESULT=1 | events=12
 
 PASS: 3 live MCP cases + SQLite consistency verified.
