@@ -43,6 +43,7 @@ class TrialConfig(ObservationModel):
     output_injection_scan: bool = False
     timeout_seconds: float = Field(default=30.0, gt=0)
     code_revision: Identifier
+    policy_comparison_key: Identifier | None = None
 
 
 @dataclass(frozen=True)
@@ -55,10 +56,10 @@ class ResolvedPolicy:
 
 def resolve_policy(config: TrialConfig) -> ResolvedPolicy:
     kwargs = {}
-    if config.output_injection_scan:
-        if "output_injection_scan" not in inspect.signature(load_condition).parameters:
-            raise UnavailableConfiguration("PI-T01 output inspection is unavailable")
-        kwargs["output_injection_scan"] = True
+    if "output_injection_scan" in inspect.signature(load_condition).parameters:
+        kwargs["output_injection_scan"] = config.output_injection_scan
+    elif config.output_injection_scan:
+        raise UnavailableConfiguration("PI-T01 output inspection is unavailable")
     try:
         condition = load_condition(config.condition, **kwargs)
     except (ValueError, FileNotFoundError) as exc:
@@ -106,7 +107,7 @@ class ExternalMCPTrialRunner:
         case, manifest = deepcopy(case), deepcopy(manifest)
         config = TrialConfig.model_validate(config.model_dump())
         metadata = self._verify_mapping(case, manifest)
-        policy = self.policy_resolver(config)
+        policy = self.policy_resolver(config.model_copy(deep=True))
         if not isinstance(policy.version, str) or not policy.version.strip():
             raise UnavailableConfiguration("resolved policy needs a version")
         backend_id = None
@@ -133,7 +134,9 @@ class ExternalMCPTrialRunner:
         started_at = datetime.now(UTC)
         latency_ms = None
         if config.execution_scope != "mapping_only":
-            request = TrialRequest(run_id, trace_id, deepcopy(case), config, policy)
+            request = TrialRequest(
+                run_id, trace_id, deepcopy(case), config.model_copy(deep=True), deepcopy(policy),
+            )
             started = perf_counter()
             try:
                 async with asyncio.timeout(config.timeout_seconds):
@@ -182,6 +185,8 @@ class ExternalMCPTrialRunner:
             started_at=started_at, latency_ms=latency_ms,
             timeout_seconds=config.timeout_seconds, evidence_validated=evidence_validated,
             evidence_issues=issues, observation=observation,
+            experiment_id=config.experiment_id,
+            policy_comparison_key=config.policy_comparison_key,
         )
 
     @staticmethod
@@ -208,6 +213,9 @@ class ExternalMCPTrialRunner:
 
     @staticmethod
     def _validate_observation(obs, config, case, run_id, trace_id, policy):
+        # Semantic assessments are produced after execution by the evaluation judge.
+        # A backend must not smuggle unsupported judgments into metric eligibility.
+        obs.semantic_outcomes = None
         if config.execution_scope != "actual_llm_mcp" and (
             obs.model_tool_selection_observed is True or obs.model_disposition is not None
         ):
@@ -269,11 +277,13 @@ class ExternalMCPTrialRunner:
         refs = set(obs.evidence_refs or [])
         refs.update(obs.outcome_evidence_refs or [])
         refs.update(obs.model_response_refs or [])
+        refs.update(obs.payload_exposure_refs or [])
         issues = []
         for candidate in obs.candidates:
             if not candidate.evidence_refs:
                 issues.append(f"candidate_evidence_missing:{candidate.candidate_id}")
             refs.update(candidate.evidence_refs or [])
+            refs.update(candidate.prevention_evidence_refs or [])
         for call in obs.sdk_calls or []:
             if call.evidence_ref:
                 refs.add(call.evidence_ref)

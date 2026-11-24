@@ -73,6 +73,10 @@ class CandidateObservation(UnknownObservation):
     output_destination: Literal["model", "user"] | None = None
     post_tool_output_block: bool | None = None
     evidence_refs: list[Identifier] | None = None
+    boundary_stage: Identifier | None = None
+    security_input_sha256: Identifier | None = None
+    guard_decision_excludes_tool_policy: bool | None = None
+    prevention_evidence_refs: list[Identifier] | None = None
 
     @model_validator(mode="after")
     def validate_boundaries(self):
@@ -96,6 +100,31 @@ class CandidateObservation(UnknownObservation):
         return self
 
 
+class OutcomeJudgment(ObservationModel):
+    value: bool | None
+    reason: Identifier
+    judge_version: Identifier
+    evidence_refs: list[Identifier] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def require_support(self):
+        if self.value is not None and not self.evidence_refs:
+            raise ValueError("determinate outcome requires supporting Evidence")
+        return self
+
+
+class SemanticOutcomes(ObservationModel):
+    run_id: Identifier
+    trace_id: Identifier
+    sample_id: Identifier
+    mapped_case_sha256: Identifier
+    attack: OutcomeJudgment
+    task: OutcomeJudgment
+    attempted_action: OutcomeJudgment
+    rule_review_ref: Identifier | None = None
+    judgment_rules_key: Identifier | None = None
+
+
 class BackendObservation(UnknownObservation):
     """Incrementally populated by a backend, preserving facts on timeout/error."""
 
@@ -115,6 +144,10 @@ class BackendObservation(UnknownObservation):
     error_stage: Identifier | None = None
     error_detail: Identifier | None = None
     timed_out: bool | None = None
+    candidate_trace_complete: bool | None = None
+    guard_trace_complete: bool | None = None
+    payload_exposure_refs: list[Identifier] | None = None
+    semantic_outcomes: SemanticOutcomes | None = None
 
 
 class TrialSidecar(UnknownObservation):
@@ -145,3 +178,7 @@ class TrialSidecar(UnknownObservation):
     evidence_validated: bool | None
     evidence_issues: list[str] = Field(default_factory=list)
     observation: BackendObservation
+    experiment_id: Identifier | None = None
+    # Team-reviewed identity of common thresholds, ToolPolicy and environment.
+    # Excludes the intentional C/D algorithm/version difference.
+    policy_comparison_key: Identifier | None = None
