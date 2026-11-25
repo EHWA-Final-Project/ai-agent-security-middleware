@@ -9,13 +9,13 @@ switching the file, never editing code.
     B  Independent Guards  coordination_mode: independent
     C  Cross-layer Guards  coordination_mode: linked
 
-D (Adaptive Inspection) is added after A/B/C results exist.
+    D  Adaptive Inspection  linked, starts in FAST mode (see d_adaptive.yaml)
 
 Identifying the condition in stored data: every condition has its own
 ``policy_version`` (``v0.1.0-cond-a-no-guard`` / ``-cond-b-independent`` /
-``-cond-c-linked``) and every SECURITY_DECISION carries it. Use
-``condition_from_policy_version`` to turn it back into "A" / "B" / "C". A has no
-SECURITY_RESULT events because all of its Guards are disabled.
+``-cond-c-linked`` / ``-cond-d-adaptive``) and every SECURITY_DECISION carries
+it. Use ``condition_from_policy_version`` to turn it back into "A" / "B" / "C" /
+"D". A has no SECURITY_RESULT events because all of its Guards are disabled.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from security.plugins.guards.tool_guard import ToolGuard
 from security.plugins.manager import PluginManager
 from security.policy.config import PolicyConfig, load_policy_config
 
-_CONDITION_IN_VERSION = re.compile(r"-cond-([abc])-", re.IGNORECASE)
+_CONDITION_IN_VERSION = re.compile(r"-cond-([abcd])-", re.IGNORECASE)
 
 CONDITIONS_DIR = Path(__file__).resolve().parent / "condition_configs"
 
@@ -39,6 +39,7 @@ CONDITION_FILES: dict[str, str] = {
     "A": "a_no_guard.yaml",
     "B": "b_independent.yaml",
     "C": "c_linked.yaml",
+    "D": "d_adaptive.yaml",
 }
 
 
@@ -69,7 +70,12 @@ def condition_path(name: str) -> Path:
         ) from None
 
 
-def load_condition(name: str, *, block_threshold: float | None = None) -> Condition:
+def load_condition(
+    name: str,
+    *,
+    block_threshold: float | None = None,
+    output_injection_scan: bool | None = None,
+) -> Condition:
     """Load a condition's policy.
 
     Returns a ``Condition``. Raises ValueError for an unknown name.
@@ -77,6 +83,10 @@ def load_condition(name: str, *, block_threshold: float | None = None) -> Condit
     ``block_threshold`` overrides the file value for threshold sweeps. Because
     any threshold change must change policy_version, the override is appended
     to it (e.g. ``v0.1.0-cond-c-linked+block0.92``).
+
+    ``output_injection_scan`` turns the Output Guard's tool-output injection
+    scan (PI-T01) on or off. A change from the file value is appended to
+    policy_version as ``+pit01`` so results with and without it never mix.
     """
     path = condition_path(name)
     policy = load_policy_config(path)
@@ -85,6 +95,14 @@ def load_condition(name: str, *, block_threshold: float | None = None) -> Condit
             update={
                 "block_threshold": block_threshold,
                 "policy_version": f"{policy.policy_version}+block{block_threshold:g}",
+            }
+        )
+    if output_injection_scan is not None and output_injection_scan != policy.output_injection_scan:
+        suffix = "+pit01" if output_injection_scan else ""
+        policy = policy.model_copy(
+            update={
+                "output_injection_scan": output_injection_scan,
+                "policy_version": f"{policy.policy_version}{suffix}",
             }
         )
     return Condition(name=name.upper(), config_path=path, policy=policy)
@@ -100,7 +118,8 @@ def build_plugin_manager(condition: Condition, *, tool_policy=None) -> PluginMan
     argument scope; ``None`` keeps the baseline behaviour.
     """
     manager = PluginManager()
-    for guard in (InputGuard(), ContextGuard(), ToolGuard(tool_policy), OutputGuard()):
+    output_guard = OutputGuard(scan_injection=condition.policy.output_injection_scan)
+    for guard in (InputGuard(), ContextGuard(), ToolGuard(tool_policy), output_guard):
         manager.register_guard(guard)
     manager.load_from_config(str(condition.config_path))
     return manager
@@ -134,9 +153,9 @@ def make_condition_security_factory(
 
 
 def condition_from_policy_version(policy_version: str) -> str | None:
-    """Return "A", "B" or "C" for a stored ``policy_version``, or None if it is not one.
+    """Return "A", "B", "C" or "D" for a stored ``policy_version``, or None if it is not one.
 
-    Works with threshold-override suffixes (``...-cond-c-linked+block0.92``).
+    Works with override suffixes (``...-cond-c-linked+block0.92``, ``...+pit01``).
     """
     match = _CONDITION_IN_VERSION.search(policy_version or "")
     return match.group(1).upper() if match else None

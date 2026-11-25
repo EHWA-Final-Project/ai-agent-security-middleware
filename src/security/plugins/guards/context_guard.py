@@ -10,6 +10,11 @@ no business issuing them.
 Decision: WARN when the score reaches ``WARN_SCORE`` (0.50); below that the
 score is still reported (decision ALLOW). Per-rule detail is in
 ``evidence[0]["matched_rules"]``; ``rule_ids`` keeps the stable umbrella id.
+
+Condition D (inspection mode FAST): the scan is gated, i.e. a rule is skipped
+only when none of its trigger words is in the text, so the matches equal those
+of the ungated scan. If anything in the FAST path fails, the whole text is
+scanned in full. In STANDARD and STRICT mode this guard behaves as before.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from enums import AttackSubtype, Decision, GuardExecutionStatus, Stage
+from enums import AttackSubtype, Decision, GuardExecutionStatus, InspectionMode, Stage
 from schemas import RuntimeObservation, SecurityContext, SecurityResult
 
 from security.plugins.guards import _injection_rules as rules
@@ -39,12 +44,38 @@ class ContextGuard(GuardPlugin):
     def inspect(self, observation: RuntimeObservation, context: SecurityContext) -> SecurityResult:
         start = time.perf_counter()
 
-        combined_text = "\n".join(_item_text(i) for i in (observation.context_items or []))
-        matches = rules.scan(combined_text, guard="context") if combined_text else []
+        items = observation.context_items or []
+        depth: str | None = None
+        if context.inspection_mode == InspectionMode.FAST and items:
+            try:
+                matches, depth = self._scan_fast(items), "gated"
+            except Exception:  # noqa: BLE001 — adaptive path must never weaken inspection
+                matches, depth = self._scan_full(items), None
+        else:
+            matches = self._scan_full(items)
         risk = rules.score(matches, **_TIER_SCORES)
         latency_ms = (time.perf_counter() - start) * 1000
 
         warn = risk >= rules.WARN_SCORE
+        evidence: list[dict[str, Any]] = []
+        if risk > 0:
+            evidence.append(
+                {
+                    "matched_patterns": [m.text for m in matches],
+                    "matched_rules": [
+                        {"rule": m.rule, "family": m.family, "tier": m.tier, "variant": m.variant}
+                        for m in matches
+                    ],
+                    "signal_count": len(matches),
+                    "attack_subtype": AttackSubtype.INDIRECT_PROMPT_INJECTION.value,
+                }
+            )
+        if depth is not None:
+            # Only present in FAST mode (condition D).
+            if evidence:
+                evidence[0]["inspection_depth"] = depth
+            else:
+                evidence.append({"inspection_depth": depth})
         return SecurityResult(
             run_id=observation.run_id,
             trace_id=observation.trace_id,
@@ -54,20 +85,17 @@ class ContextGuard(GuardPlugin):
             risk_score=risk,
             decision=Decision.WARN if warn else Decision.ALLOW,
             rule_ids=["context_guard.indirect_prompt_injection"] if warn else [],
-            evidence=(
-                [
-                    {
-                        "matched_patterns": [m.text for m in matches],
-                        "matched_rules": [
-                            {"rule": m.rule, "family": m.family, "tier": m.tier, "variant": m.variant}
-                            for m in matches
-                        ],
-                        "signal_count": len(matches),
-                        "attack_subtype": AttackSubtype.INDIRECT_PROMPT_INJECTION.value,
-                    }
-                ]
-                if risk > 0
-                else []
-            ),
+            evidence=evidence,
             latency_ms=latency_ms,
         )
+
+    @staticmethod
+    def _scan_full(items: list[Any]) -> list[rules.Match]:
+        combined_text = "\n".join(_item_text(i) for i in items)
+        return rules.scan(combined_text, guard="context") if combined_text else []
+
+    @staticmethod
+    def _scan_fast(items: list[Any]) -> list[rules.Match]:
+        """Gated scan: same matches as the full scan, fewer regex runs."""
+        combined_text = "\n".join(_item_text(i) for i in items)
+        return rules.scan(combined_text, guard="context", gated=True) if combined_text else []

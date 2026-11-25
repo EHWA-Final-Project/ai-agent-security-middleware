@@ -138,7 +138,7 @@ class SecurityOrchestrator:
             run_id=observation.run_id,
             trace_id=observation.trace_id,
             current_stage=Stage.INPUT,
-            inspection_mode=InspectionMode.STANDARD,
+            inspection_mode=self._initial_mode(),
             policy_version=self.policy_config.policy_version,
         )
 
@@ -216,6 +216,8 @@ class SecurityOrchestrator:
                     return fallback_decision
                 continue
 
+            self._escalate_fast_mode(result, context)
+
             # Critical Rule violation: immediate BLOCK regardless of stage.
             if any(self.policy_config.is_critical_rule(rid) for rid in result.rule_ids):
                 return self._decision_from_context(
@@ -265,6 +267,30 @@ class SecurityOrchestrator:
     @property
     def _independent(self) -> bool:
         return self.policy_config.coordination_mode == CoordinationMode.INDEPENDENT
+
+    # ------------------------------------------------------------------
+    # Adaptive inspection (condition D). FAST is only ever the *starting*
+    # mode; any problem in this logic falls back to STANDARD, i.e. C.
+    # ------------------------------------------------------------------
+
+    def _initial_mode(self) -> InspectionMode:
+        mode = getattr(self.policy_config, "initial_inspection_mode", InspectionMode.STANDARD)
+        # Independent mode never changes inspection mode, so it never starts lightened.
+        if self._independent and mode == InspectionMode.FAST:
+            return InspectionMode.STANDARD
+        return mode
+
+    def _escalate_fast_mode(self, result: SecurityResult, context: SecurityContext) -> None:
+        """FAST -> STANDARD as soon as a Guard reports any risk. From STANDARD on,
+        the C logic (STRICT escalation, sanitize, thresholds) applies unchanged.
+        """
+        if context.inspection_mode != InspectionMode.FAST:
+            return
+        try:
+            if (result.risk_score or 0.0) > 0.0 or result.decision != Decision.ALLOW:
+                context.inspection_mode = InspectionMode.STANDARD
+        except Exception:  # noqa: BLE001 — adaptive step must never weaken inspection
+            context.inspection_mode = InspectionMode.STANDARD
 
     def _judge_independently(
         self,
@@ -336,7 +362,7 @@ class SecurityOrchestrator:
         in _run_stage before this is called — this method only handles mode
         escalation and stage-specific STRICT behavior.
         """
-        if context.inspection_mode == InspectionMode.STANDARD:
+        if context.inspection_mode in (InspectionMode.FAST, InspectionMode.STANDARD):
             context.inspection_mode = InspectionMode.STRICT
             return None
 

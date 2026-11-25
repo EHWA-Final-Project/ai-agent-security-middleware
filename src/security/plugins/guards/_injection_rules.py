@@ -122,6 +122,46 @@ RULES: tuple[Rule, ...] = (
     _r("steer.hidden_url", "steer", WEAK, r"\bhttps?://\S+"),
 )
 
+#: Trigger words per rule for the gated scan (condition D, FAST mode). A rule is
+#: skipped only if NONE of its words occurs in the normalised text, so each entry
+#: must be a necessary condition for the rule's regex: every possible match
+#: contains at least one of these literals. Text is already case-folded with
+#: single spaces, so plain lowercase substrings are enough. A rule without an
+#: entry always runs (the safe default). tests/unit/test_injection_rule_gating.py
+#: checks this table against the real rules.
+_RULE_NEEDS: dict[str, tuple[str, ...]] = {
+    "override.ignore_previous": ("ignore", "disregard", "forget", "override", "bypass", "skip"),
+    "override.disregard_above": ("disregard",),
+    "override.ignore_above": ("ignore", "disregard"),
+    "override.korean": ("이전", "위의", "앞의", "기존"),
+    "extraction.system_prompt": ("system prompt", "initial prompt", "hidden prompt", "your instructions"),
+    "marker.new_instructions": ("new instructions",),
+    "marker.system_colon": ("system",),
+    "role.system_colon": ("system", "assistant", "developer"),
+    "role.you_are_now": ("you are now",),
+    "role.act_as": ("act as", "behave as", "respond as"),
+    "role.developer_mode": ("mode",),
+    "role.pretend": ("pretend",),
+    "delimiter.end_of_prompt": ("end of", "[", "<"),
+    "delimiter.access_granted": ("access granted",),
+    "directive.send_to_address": ("send", "forward", "email", "mail", "post", "upload", "transmit"),
+    "directive.exfiltrate_data": ("send", "forward", "leak", "exfiltrate", "upload", "transmit", "email"),
+    "directive.call_tool": ("call", "invoke", "run", "execute", "use"),
+    "directive.delete": ("delete", "remove", "erase", "wipe"),
+    "directive.shape_response": (
+        "your response", "your reply", "your answer", "your output", "your message", "your summary",
+    ),
+    "directive.insert_code_or_link": ("following", "below"),
+    "extraction.repeat_instructions": (
+        "repeat", "recite", "restate", "summari", "translate", "convert", "print",
+    ),
+    "steer.note_to_ai": ("note", "message", "instruction"),
+    "steer.important": ("important", "urgent", "critical"),
+    "steer.must_always": ("you must", "you should", "you have to", "you need to"),
+    "steer.instead": ("instead",),
+    "steer.hidden_url": ("http",),
+}
+
 _WS = re.compile(r"\s+")
 _B64_TOKEN = re.compile(r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/]{24,}={0,2}(?![A-Za-z0-9+/=])")
 
@@ -167,8 +207,14 @@ class Match:
     variant: str  # "plain" | "squashed" | "base64"
 
 
-def scan(text: str, *, guard: str) -> list[Match]:
-    """Return distinct rule matches for ``text`` (``guard`` = input|context)."""
+def scan(text: str, *, guard: str, gated: bool = False) -> list[Match]:
+    """Return distinct rule matches for ``text`` (``guard`` = input|context).
+
+    ``gated=True`` skips a rule when none of its trigger words (``_RULE_NEEDS``)
+    occurs in the text. It returns exactly the same matches as the ungated scan;
+    it only avoids running regexes that cannot match. Used by condition D while
+    no risk has been seen in the run.
+    """
     norm = normalize(text)
     matches: dict[str, Match] = {}
 
@@ -176,6 +222,10 @@ def scan(text: str, *, guard: str) -> list[Match]:
         for rule in RULES:
             if rule.only_for not in (None, guard) or rule.rule in matches:
                 continue
+            if gated:
+                needs = _RULE_NEEDS.get(rule.rule)
+                if needs is not None and not any(word in candidate for word in needs):
+                    continue
             m = rule.pattern.search(candidate)
             if m:
                 matches[rule.rule] = Match(rule.rule, rule.family, rule.tier, m.group(0).strip(), variant)
