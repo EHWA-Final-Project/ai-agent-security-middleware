@@ -5,6 +5,9 @@ rule set in ``_injection_rules`` (strong / medium / weak tiers, more distinct
 rules -> higher score within a tier). Legacy phrases such as "ignore previous
 instructions" keep their original score of 0.90.
 
+Condition D (inspection mode FAST) only skips rules whose trigger words are
+absent from the text; the matches are identical to the full scan.
+
 Decision: WARN when the score reaches ``WARN_SCORE`` (0.50, the default strict
 threshold); below that the score is still reported (decision ALLOW) so the
 Orchestrator and Evidence see graded risk. Per-rule detail is in
@@ -15,7 +18,7 @@ from __future__ import annotations
 
 import time
 
-from enums import AttackSubtype, Decision, GuardExecutionStatus, Stage
+from enums import AttackSubtype, Decision, GuardExecutionStatus, InspectionMode, Stage
 from schemas import RuntimeObservation, SecurityContext, SecurityResult
 
 from security.plugins.guards import _injection_rules as rules
@@ -30,7 +33,13 @@ class InputGuard(GuardPlugin):
 
     def inspect(self, observation: RuntimeObservation, context: SecurityContext) -> SecurityResult:
         start = time.perf_counter()
-        matches = rules.scan(observation.user_input or "", guard="input")
+        # FAST (condition D, no risk seen yet): gated scan, same matches, fewer regex runs.
+        # Any other mode, or any failure in the gate, runs the plain full scan as in A/B/C.
+        gated = context.inspection_mode == InspectionMode.FAST
+        try:
+            matches = rules.scan(observation.user_input or "", guard="input", gated=gated)
+        except Exception:  # noqa: BLE001 — adaptive path must never weaken inspection
+            matches = rules.scan(observation.user_input or "", guard="input")
         risk = rules.score(matches, **_TIER_SCORES)
         latency_ms = (time.perf_counter() - start) * 1000
 

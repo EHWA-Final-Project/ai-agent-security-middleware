@@ -103,19 +103,31 @@ def test_condition_security_factory_builds_an_orchestrator_with_the_condition_po
             orchestrator.close()
 
 
-@pytest.mark.parametrize("name", ["A", "B", "C"])
+@pytest.mark.parametrize("name", ["A", "B", "C", "D"])
 def test_condition_is_recoverable_from_policy_version(name):
     version = load_condition(name).policy.policy_version
     assert condition_from_policy_version(version) == name
 
 
-@pytest.mark.parametrize("name", ["A", "B", "C"])
+@pytest.mark.parametrize("name", ["A", "B", "C", "D"])
 def test_condition_is_recoverable_with_threshold_override(name):
     version = load_condition(name, block_threshold=0.92).policy.policy_version
     assert version.endswith("+block0.92")
     assert condition_from_policy_version(version) == name
 
 
-@pytest.mark.parametrize("version", ["", "v0.1.0", "v0.1.0-cond-d-adaptive", None])
+@pytest.mark.parametrize("version", ["", "v0.1.0", "v0.1.0-cond-e-other", None])
 def test_non_condition_policy_versions_give_none(version):
     assert condition_from_policy_version(version) is None
+
+
+@pytest.mark.parametrize("name", ["A", "B", "C", "D"])
+def test_pit01_override_changes_policy_version_and_keeps_condition(name):
+    base = load_condition(name)
+    on = load_condition(name, output_injection_scan=True)
+    assert base.policy.output_injection_scan is False
+    assert on.policy.output_injection_scan is True
+    assert on.policy.policy_version == base.policy.policy_version + "+pit01"
+    assert condition_from_policy_version(on.policy.policy_version) == name
+    # asking for the value the file already has is not an override
+    assert load_condition(name, output_injection_scan=False).policy.policy_version == base.policy.policy_version

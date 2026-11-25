@@ -1,0 +1,38 @@
+# Condition D - Adaptive Inspection (depth-adaptive, linked).
+# Same Guards, thresholds, weights and coordination as C. Differences:
+#   * a run starts in FAST mode (initial_inspection_mode) instead of STANDARD;
+#   * in FAST mode the Input/Context/Output injection scans skip rules whose
+#     trigger words are absent from the text (same matches as the full scan);
+#   * the first Guard that reports any risk escalates the run to STANDARD, and
+#     from there the C logic applies unchanged (STRICT escalation, sanitize, ...).
+# Never lightened: Tool Guard (ToolPolicy), Output Guard, any Guard BLOCK,
+# critical_rule_ids, block_threshold, fail-closed handling at the Tool and
+# Output stages. If the adaptive step itself fails, the run falls back to
+# STANDARD, i.e. condition C behaviour.
+#
+# Thresholds and weights are identical in A/B/C/D. They are P0 smoke values,
+# not tuned values.
+
+policy_version: "v0.1.0-cond-d-adaptive"
+
+strict_threshold: 0.50
+block_threshold: 0.80
+
+guard_weights:
+  input_guard: 1.0
+  context_guard: 1.0
+  tool_guard: 1.0
+  output_guard: 1.0
+
+coordination_mode: linked
+initial_inspection_mode: FAST
+
+guards:
+  input_guard:
+    enabled: true
+  context_guard:
+    enabled: true
+  tool_guard:
+    enabled: true
+  output_guard:
+    enabled: true

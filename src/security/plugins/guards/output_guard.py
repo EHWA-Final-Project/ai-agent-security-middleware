@@ -1,4 +1,10 @@
 """Output Guard · P0 baseline.
+
+Secret-leak scan of the tool output (and context_items). Optionally
+(``scan_injection=True``, policy field ``output_injection_scan``, PI-T01) it
+also scans the executed tool output for injected instructions with the same
+rule set the Context Guard uses, because that text goes back to the model on
+the next turn. Off by default, so A/B/C behave exactly as before.
 """
 
 from __future__ import annotations
@@ -7,12 +13,18 @@ import re
 import time
 from typing import Any
 
-from enums import AttackSubtype, Decision, GuardExecutionStatus, Stage
+from enums import AttackSubtype, Decision, GuardExecutionStatus, InspectionMode, Stage
 from schemas.runtime import RuntimeObservation
 from schemas.security import SecurityContext, SecurityResult
 
+from security.plugins.guards import _injection_rules as injection_rules
 from security.plugins.guards._tool_names import base_tool_name
 from security.plugins.interface import GuardPlugin
+
+#: Same tier scores as the Context Guard: strong 0.88 (BLOCK at the default
+#: block_threshold 0.80), medium 0.62 (WARN), weak alone is not evidence.
+_INJECTION_TIER_SCORES = {"strong": 0.88, "medium": 0.62, "weak": 0.30}
+_INJECTION_RULE_ID = "output_guard.tool_response_injection"
 
 _SECRET_PATTERNS = [
     r"api[_-]?key\s*[:=]\s*\S+",
@@ -90,9 +102,42 @@ def _allow_result(
     )
 
 
+def _injection_findings(
+    text: str | None, *, gated: bool = False
+) -> tuple[float, list[injection_rules.Match]]:
+    """Injection score (0.0 if below the warn level) and matches for ``text``.
+
+    ``gated`` (condition D, FAST mode) skips rules whose trigger words are absent;
+    the matches are identical to the ungated scan.
+    """
+    if not text:
+        return 0.0, []
+    try:
+        matches = injection_rules.scan(text, guard="context", gated=gated)
+    except Exception:  # noqa: BLE001 — adaptive path must never weaken inspection
+        matches = injection_rules.scan(text, guard="context")
+    risk = injection_rules.score(matches, **_INJECTION_TIER_SCORES)
+    return (risk, matches) if risk >= injection_rules.WARN_SCORE else (0.0, matches)
+
+
+def _injection_evidence(matches: list[injection_rules.Match]) -> dict[str, Any]:
+    return {
+        "matched_patterns": [m.text for m in matches],
+        "matched_rules": [
+            {"rule": m.rule, "family": m.family, "tier": m.tier, "variant": m.variant} for m in matches
+        ],
+        "signal_count": len(matches),
+        "attack_subtype": AttackSubtype.INDIRECT_PROMPT_INJECTION.value,
+        "source": "tool_output",
+    }
+
+
 class OutputGuard(GuardPlugin):
     name = "output_guard"
     stage = Stage.OUTPUT
+
+    def __init__(self, *, scan_injection: bool = False) -> None:
+        self._scan_injection = scan_injection
 
     def inspect(self, observation: RuntimeObservation, context: SecurityContext) -> SecurityResult:
         start = time.perf_counter()
@@ -118,7 +163,35 @@ class OutputGuard(GuardPlugin):
             if hits:
                 matched_by_source["context_items"] = hits
 
+        injection_risk, injection_matches = (
+            _injection_findings(tool_text, gated=context.inspection_mode == InspectionMode.FAST)
+            if self._scan_injection
+            else (0.0, [])
+        )
+
         latency_ms = (time.perf_counter() - start) * 1000
+        if injection_risk > 0.0:
+            evidence: list[dict[str, Any]] = [_injection_evidence(injection_matches)]
+            rule_ids = [_INJECTION_RULE_ID]
+            risk = injection_risk
+            if matched_by_source:
+                evidence.append(
+                    {"matched_by_source": matched_by_source, "attack_subtype": AttackSubtype.DATA_LEAKAGE.value}
+                )
+                rule_ids.insert(0, "output_guard.secret_leakage")
+                risk = max(risk, 0.95)
+            return SecurityResult(
+                run_id=observation.run_id,
+                trace_id=observation.trace_id,
+                stage=self.stage,
+                guard_name=self.name,
+                execution_status=GuardExecutionStatus.SUCCESS,
+                risk_score=risk,
+                decision=Decision.WARN,
+                rule_ids=rule_ids,
+                evidence=evidence,
+                latency_ms=latency_ms,
+            )
         if matched_by_source:
             return SecurityResult(
                 run_id=observation.run_id,
@@ -175,7 +248,39 @@ class OutputGuard(GuardPlugin):
             if hits:
                 still_matched["context_items"] = hits
 
+        # Redaction cannot remove an injected instruction: if the (redacted)
+        # tool output still carries one, the recheck must still warn.
+        injection_risk, injection_matches = (
+            _injection_findings(sanitized_tool_output) if self._scan_injection else (0.0, [])
+        )
+
         latency_ms = (time.perf_counter() - start) * 1000
+
+        if injection_risk > 0.0:
+            rule_ids = [_INJECTION_RULE_ID]
+            risk = injection_risk
+            if still_matched:
+                rule_ids.insert(0, "output_guard.secret_leakage")
+                risk = max(risk, 0.95)
+            return SecurityResult(
+                run_id=observation.run_id,
+                trace_id=observation.trace_id,
+                stage=self.stage,
+                guard_name=self.name,
+                execution_status=GuardExecutionStatus.SUCCESS,
+                risk_score=risk,
+                decision=Decision.WARN,
+                rule_ids=rule_ids,
+                evidence=[
+                    {
+                        "still_matched_after_redaction": {
+                            **still_matched,
+                            "tool_output_injection": [m.rule for m in injection_matches],
+                        }
+                    }
+                ],
+                latency_ms=latency_ms,
+            )
 
         if still_matched:
             return SecurityResult(
