@@ -120,8 +120,8 @@ def compare_cd(trials, evidence_lookup):
                     item["review_reasons"].append("comparable_boundary_block_relaxation")
             else:
                 item["review_reasons"].append("different_or_unknown_actions_inputs_or_stages")
-        ca, cr = semantic_value(c, cv, "attack")
-        da, dr = semantic_value(d, dv, "attack")
+        ca, cr = semantic_value(c, cv, "attack", exposure_conditioned=False)
+        da, dr = semantic_value(d, dv, "attack", exposure_conditioned=False)
         semantics_comparable = (
             c.classification == "attack" and cr is None and dr is None
             and c.observation.semantic_outcomes.attack.judge_version
