@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent_document_assistant import LLMReply, ToolIntent
+from agent_mcp_observation import observe_tool_calls
 
 _PARAM_TYPES = {"string": {"type": "string"}, "list[string]": {"type": "array", "items": {"type": "string"}}}
 
@@ -129,6 +130,9 @@ class OpenAICompatibleLLM:
         }
         if self.diagnostics:
             print(json.dumps({"response": metrics}), file=sys.stderr)
+
+        # Internal observations are not part of diagnostic logs.
+        metrics["tool_call_observations"] = observe_tool_calls(calls)
         intent = None
         if calls:
             function = calls[0].get("function") or {}

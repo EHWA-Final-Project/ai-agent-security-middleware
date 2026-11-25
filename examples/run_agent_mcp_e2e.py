@@ -22,6 +22,10 @@ for source in (ROOT / "src", ROOT / "shared", ROOT / "examples"):
     sys.path.insert(0, str(source))
 
 from agent_mcp_case import AgentCaseInput
+from agent_mcp_observation import (
+    AgentRunObservation,
+    public_summary,
+)
 from enums import RunStatus
 from llm_openai_compatible import OpenAICompatibleLLM
 
@@ -134,12 +138,27 @@ def model_tools(specs):
     return converted, mapping
 
 
-async def run_e2e(
+async def _run_e2e_impl(
     portal, directory, condition_name, scenario,
     case: AgentCaseInput | None = None,
+    observation: AgentRunObservation | None = None,
 ):
     if case is not None:
         scenario = "external"
+
+    scenario_id = case.scenario_id if case is not None else scenario
+
+    if observation is None:
+        observation = AgentRunObservation(
+            scenario_id=scenario_id,
+            condition=condition_name,
+        )
+    elif (
+        observation.scenario_id != scenario_id
+        or observation.condition != condition_name
+    ):
+        raise ValueError("Observation identity mismatch")
+
     docs = directory / "docs"
     docs.mkdir(parents=True, exist_ok=True)
     (docs / "safe.txt").write_text(
@@ -188,8 +207,12 @@ async def run_e2e(
     )
 
     repository = SQLiteEvidenceRepository(directory / "evidence.db")
+    observation.evidence_db_path = str(directory / "evidence.db")
     collector = EvidenceCollector(repository)
     llm = OpenAICompatibleLLM.from_env()
+
+    observation.requested_model = llm.model
+    observation.policy_version = condition.policy.policy_version
 
     if case is not None:
         prompt = case.user_input
@@ -249,8 +272,85 @@ async def run_e2e(
                 reply.tool_call.tool_name if reply.tool_call else None,
             )
 
+            diagnostics = reply.diagnostics or {}
+
+            model_turn = observation.record_model_turn(
+                step,
+                reply.model,
+                diagnostics,
+                response_text=reply.text,
+            )
+
+            # A returned model response confirms the follow-up
+            # request completed with the queued tool message.
+            for previous in observation.tool_executions:
+                if (
+                    previous.output_queued
+                    and previous.followup_model_turn == step
+                    and previous.output_allowed is True
+                ):
+                    previous.output_delivered = True
+                    previous.output_destination = "model"
+
+                if (
+                    previous.blocked_notice_queued
+                    and previous.followup_model_turn == step
+                    and previous.output_allowed is False
+                ):
+                    previous.blocked_notice_delivered = True
+
+
+            observations = diagnostics.get("tool_call_observations")
+
+            if observations is None:
+                observation.mark_error(
+                    "model_selection",
+                    "MODEL_SELECTION_OBSERVATION_MISSING",
+                )
+                print("ERROR: MODEL_SELECTION_OBSERVATION_MISSING")
+                return False
+
+            print(
+                "Model tool observations:",
+                json.dumps([
+                    {
+                        "index": item["index"],
+                        "provider_tool_name": item["provider_tool_name"],
+                        "arguments_valid": item["arguments_valid"],
+                    }
+                    for item in observations
+                ], ensure_ascii=False),
+            )
+
+            error = model_turn.selection_error
+
+            if error is not None:
+                observation.mark_error("model_selection", error)
+                print("MODEL SELECTION ERROR:", error)
+                print("Runtime not invoked for this model turn.")
+                print("Semantic outcome: NOT EVALUATED")
+                return False
+
             if reply.tool_call is None:
-                print("Final answer:", reply.text)
+                if (
+                    observations
+                    or model_turn.finish_reason != "stop"
+                    or not isinstance(reply.text, str)
+                    or not reply.text.strip()
+                ):
+                    observation.mark_error(
+                        "model_response",
+                        "INCOMPLETE_FINAL_RESPONSE",
+                    )
+                    return False
+
+                observation.final_response = reply.text
+                observation.mark_completed()
+
+                if case is None:
+                    print("Final answer:", reply.text)
+                else:
+                    print("Final response recorded privately.")
                 print("E2E finished.")
                 if case is not None:
                     print("EXTERNAL LOOP COMPLETED")
@@ -275,8 +375,20 @@ async def run_e2e(
             tool_name = mapping.get(provider_name)
 
             if tool_name is None:
+                observation.mark_error(
+                    "model_selection",
+                    "UNKNOWN_TOOL",
+                )
                 print("ERROR: model selected an unknown tool")
                 return False
+
+            candidate = observation.record_tool_candidate(
+                model_turn=step,
+                provider_tool_name=provider_name,
+                tool_name=tool_name,
+                model_tool_call_id=reply.tool_call_id,
+                tool_arguments=reply.tool_call.arguments,
+            )
 
             before = observed.calls
             before_server = json.loads(
@@ -288,7 +400,9 @@ async def run_e2e(
                 context_items=list(document_context),
                 session_id="agent-mcp-e2e",
                 scenario_id=(
-                    f"{case.scenario_id if case else scenario}-step-{step}"
+                    case.scenario_id
+                    if case is not None
+                    else f"{scenario}-step-{step}"
                 ),
                 tool_request=ToolRequest(
                     tool_name=tool_name,
@@ -308,8 +422,23 @@ async def run_e2e(
                     ),
                 )
 
-            result = await anyio.to_thread.run_sync(execute)
-            sdk_calls = observed.calls - before
+            try:
+                result = await anyio.to_thread.run_sync(execute)
+            finally:
+                candidate.sdk_call_count = observed.calls - before
+
+            candidate.record_runtime_result(result)
+            candidate.runtime_scenario_id = result.identity.scenario_id
+
+            if result.decision is not None:
+                candidate.security_decision_snapshot = (
+                    result.decision.model_dump(mode="json")
+                )
+
+            if result.output_allowed is False:
+                candidate.output_delivered = False
+
+            sdk_calls = candidate.sdk_call_count
             after_server = json.loads(
                 counter_path.read_text(encoding="utf-8")
             )
@@ -317,6 +446,8 @@ async def run_e2e(
                 key: after_server[key] - before_server[key]
                 for key in before_server
             }
+            candidate.server_call_counts = dict(server_delta)
+
             print("Server tool calls:", server_delta)
 
             decision = (
@@ -348,8 +479,19 @@ async def run_e2e(
             ])
 
             events = repository.list_events_by_run(result.identity.run_id)
+
+            candidate.record_evidence(events)
+
             print("SQLite events:", len(events))
+            print(
+                "Evidence identity verified:",
+                candidate.evidence_identity_verified,
+            )
             if result.run_status != RunStatus.COMPLETED or result.errors:
+                observation.mark_error(
+                    "runtime_execution",
+                    "RUNTIME_FAILED",
+                )
                 print("ERROR: Runtime failed; not a security block.")
                 return False
 
@@ -472,8 +614,140 @@ async def run_e2e(
                 "content": tool_response,
             })
 
+            if result.output_allowed:
+                candidate.output_queued = True
+                candidate.blocked_notice_delivered = False
+            else:
+                candidate.blocked_notice_queued = True
+
+            candidate.followup_model_turn = step + 1
+
+        observation.error_stage = "agent_loop"
+        observation.error_type = "MAX_MODEL_TURNS_REACHED"
+
         print("STOP: maximum model turns reached.")
         return False
+
+
+async def run_e2e(
+    portal, directory, condition_name, scenario,
+    case: AgentCaseInput | None = None,
+    observation: AgentRunObservation | None = None,
+):
+    scenario_id = case.scenario_id if case is not None else scenario
+
+    if observation is None:
+        observation = AgentRunObservation(
+            scenario_id=scenario_id,
+            condition=condition_name,
+        )
+
+    if (
+        observation.scenario_id != scenario_id
+        or observation.condition != condition_name
+    ):
+        raise ValueError("Observation identity mismatch")
+
+    if observation.model_turns or observation.tool_executions:
+        raise ValueError("Observation must be fresh")
+
+    try:
+        verified = await _run_e2e_impl(
+            portal,
+            directory,
+            condition_name,
+            scenario,
+            case,
+            observation,
+        )
+    except TimeoutError:
+        observation.mark_error(
+            "agent_execution",
+            "TimeoutError",
+            timed_out=True,
+        )
+        raise
+    except Exception as exc:
+        observation.mark_error(
+            "agent_execution",
+            type(exc).__name__,
+        )
+        raise
+
+    if case is None:
+        observation.legacy_verification_passed = verified
+
+    return verified
+
+
+async def execute_agent_case(
+    portal,
+    directory: Path,
+    condition_name: str,
+    case: AgentCaseInput,
+    *,
+    trial_run_id: str | None = None,
+    trial_trace_id: str | None = None,
+) -> AgentRunObservation:
+    """Execute an external case and return private runtime observations.
+
+    Runtime request identities are preserved independently of Trial IDs.
+    Semantic evaluation is the caller's responsibility.
+    """
+
+    if condition_name not in {"A", "B", "C"}:
+        raise ValueError("Only conditions A/B/C are currently supported")
+
+    if (trial_run_id is None) != (trial_trace_id is None):
+        raise ValueError("Trial run_id and trace_id must be supplied together")
+
+    if trial_run_id is not None and (
+        not trial_run_id.strip() or not trial_trace_id.strip()
+    ):
+        raise ValueError("Trial IDs must not be empty")
+
+    directory = Path(directory).resolve()
+    directory.mkdir(parents=True, exist_ok=False, mode=0o700)
+
+    observation = AgentRunObservation(
+        scenario_id=case.scenario_id,
+        condition=condition_name,
+        trial_run_id=trial_run_id,
+        trial_trace_id=trial_trace_id,
+    )
+
+    try:
+        await run_e2e(
+            portal,
+            directory,
+            condition_name,
+            "external",
+            case,
+            observation,
+        )
+    except Exception as exc:  # noqa: BLE001
+        if observation.run_status not in {"error", "timeout"}:
+            observation.mark_error(
+                "agent_execution",
+                type(exc).__name__,
+            )
+
+    observation.finalize_candidate_trace()
+
+    observation.finalize_guard_trace()
+
+    summary_path = directory / "observation_summary.json"
+
+    summary_path.write_text(
+        json.dumps(
+            public_summary(observation),
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    return observation
 
 
 def main():
