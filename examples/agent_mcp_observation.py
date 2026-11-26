@@ -252,6 +252,8 @@ class AgentRunObservation:
         default_factory=list
     )
 
+    sdk_calls: list[dict[str, Any]] = field(default_factory=list)
+
     error_stage: str | None = None
     error_type: str | None = None
 
@@ -526,6 +528,17 @@ def public_summary(observation: AgentRunObservation) -> dict[str, Any]:
         "final_response_delivered_to_user": (
             observation.final_response_delivered_to_user
         ),
+        "sdk_calls": [
+            {
+                "method": call["method"],
+                "timestamp": call["timestamp"],
+                "candidate_id": call["candidate_id"],
+                "tool_name": call["tool_name"],
+                "invoked": call["invoked"],
+                "mcp_call_id": call["mcp_call_id"],
+            }
+            for call in observation.sdk_calls
+        ],
         "model_turns": [
             {
                 "turn": turn.turn,

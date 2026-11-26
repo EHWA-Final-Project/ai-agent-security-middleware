@@ -85,17 +85,37 @@ server.run(transport="stdio")
 
 
 class ObservedSession:
-    """Count actual entries to the MCP SDK call_tool boundary."""
+    """Observe actual entries to MCP SDK invocation boundaries."""
 
-    def __init__(self, session):
+    def __init__(self, session, observation=None):
         self.session = session
+        self.observation = observation
         self.calls = 0
+        self.active_candidate_id = None
+
+    def _record_invocation(self, method, tool_name=None):
+        from datetime import UTC, datetime
+
+        if self.observation is not None:
+            self.observation.sdk_calls.append({
+                "method": method,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "candidate_id": (
+                    self.active_candidate_id
+                    if method == "tools/call" else None
+                ),
+                "tool_name": tool_name,
+                "invoked": True,
+                "mcp_call_id": None,
+            })
 
     async def list_tools(self):
+        self._record_invocation("tools/list")
         return await self.session.list_tools()
 
     async def call_tool(self, name, arguments):
         self.calls += 1
+        self._record_invocation("tools/call", f"demo/{name}")
         return await self.session.call_tool(name, arguments)
 
 
@@ -257,7 +277,7 @@ async def _run_e2e_impl(
         ClientSession(read, write) as session,
     ):
         await session.initialize()
-        observed = ObservedSession(session)
+        observed = ObservedSession(session, observation)
 
         discovered = await observed.list_tools()
         tools = await discover_tools("demo", observed, portal)
@@ -435,10 +455,12 @@ async def _run_e2e_impl(
                     ),
                 )
 
+            observed.active_candidate_id = candidate.candidate_id
             try:
                 result = await anyio.to_thread.run_sync(execute)
             finally:
                 candidate.sdk_call_count = observed.calls - before
+                observed.active_candidate_id = None
 
             candidate.record_runtime_result(result)
             candidate.runtime_scenario_id = result.identity.scenario_id
