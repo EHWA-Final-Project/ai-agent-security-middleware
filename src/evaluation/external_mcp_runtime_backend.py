@@ -23,11 +23,13 @@ from schemas.security import SecurityDecision, SecurityResult
 from evidence.sqlite_repository import SQLiteEvidenceRepository
 from security.policy.conditions import load_condition
 
+from .external_mcp_adapter import record_sha256, sha256
 from .external_mcp_runtime_adapter import build_agent_case_kwargs
 from .external_mcp_trial_runner import ResolvedPolicy, UnavailableConfiguration
 from .mcp_trial_observation import (
     CandidateObservation,
     RuntimeIdentityBinding,
+    SDKCall,
     ToolAction,
 )
 from .runtime_identity import runtime_event_group_matches
@@ -67,7 +69,7 @@ def runtime_model_configuration():
 
 
 class RuntimeExecutionBackend:
-    backend_id = "external-mcp-runtime-abcd-pit01-v2"
+    backend_id = "external-mcp-runtime-abcd-pit01-telemetry-v3"
     execution_scope = "actual_llm_mcp"
 
     def __init__(self, private_root: str | Path):
@@ -96,7 +98,7 @@ class RuntimeExecutionBackend:
             directory = self.private_root / f"trial-{uuid4()}"
             directory.mkdir(parents=True, exist_ok=False, mode=0o700)
             runtime_directory = directory / "runtime"
-            observation.unknown_reasons["sdk_calls"] = "runtime_has_counts_without_invocation_events"
+            observation.unknown_reasons["sdk_calls"] = "runtime_invocation_trace_not_yet_validated"
             try:
                 with (
                     (directory / "runtime.log").open("w", encoding="utf-8") as log,
@@ -215,6 +217,112 @@ class RuntimeExecutionBackend:
             "attack_objective_achieved": "semantic_judgment_not_performed",
             "legitimate_task_success": "semantic_judgment_not_performed",
         })
+        self._record_returned_telemetry(request, obs, raw, directory)
+
+    def _record_returned_telemetry(self, request, obs, raw, directory):
+        # Do not equate missing telemetry on interrupted runs with zero calls.
+        # The complete private raw observation remains available for diagnostics.
+        if obs.run_status != "completed" or not raw.loop_completed or not raw.candidate_trace_complete:
+            return
+        source_hash = sha256((directory.parent / "runtime_observation.json").read_bytes())
+
+        def record(kind, payload):
+            event = SecurityEvent(
+                event_id=f"evaluation-observation-{uuid4()}",
+                run_id=request.run_id, trace_id=request.trace_id,
+                scenario_id=request.case["scenario_id"], event_type=kind,
+                payload={
+                    "source": "evaluation_ingestion_of_runtime_observation",
+                    "source_observation_sha256": source_hash,
+                    "sample_id": request.case["sample_id"],
+                    "mapped_case_sha256": record_sha256(request.case),
+                    "policy_version": request.policy.version,
+                    **payload,
+                },
+            )
+            # The CLI persists the replay index; the original Runtime DB is not
+            # rewritten to pretend these were native Runtime events.
+            self.events[event.event_id] = event
+            obs.evidence_refs.append(event.event_id)
+            return event.event_id
+
+        calls = self._validated_sdk_calls(raw, obs)
+        if calls is not None:
+            obs.sdk_calls = []
+            for call, tool_name in calls:
+                call.evidence_ref = record("SDK_INVOCATION", {
+                    "method": call.method, "timestamp": call.timestamp.isoformat(),
+                    "candidate_id": call.candidate_id, "mcp_call_id": call.mcp_call_id,
+                    "tool_name": tool_name, "invoked": True,
+                })
+                obs.sdk_calls.append(call)
+        else:
+            obs.unknown_reasons["sdk_calls"] = "runtime_invocation_trace_missing_or_inconsistent"
+
+        # Final generation is not user delivery. Require corroboration by the
+        # recorded terminal model turn, not merely a nonempty text field.
+        if raw.model_turns and obs.evidence_refs:
+            last = raw.model_turns[-1]
+            if (
+                isinstance(raw.final_response, str) and raw.final_response.strip()
+                and last.response_text == raw.final_response
+                and last.model and last.tool_selection_observed is True
+                and not last.tool_calls and last.selection_error is None
+            ):
+                obs.model_response_refs = [record("MODEL_RESPONSE", {
+                    "actual_model": True, "final": True, "text": raw.final_response,
+                    "model": last.model, "model_turn": last.turn,
+                    "delivered_to_user": raw.final_response_delivered_to_user,
+                })]
+            elif raw.final_response is not None:
+                obs.unknown_reasons["model_response_refs"] = "terminal_model_response_not_corroborated"
+
+    @staticmethod
+    def _validated_sdk_calls(raw, obs):
+        """Accept only a coherent observed invocation trace; no inferred calls."""
+        records = getattr(raw, "sdk_calls", None)
+        if not isinstance(records, list) or not records:
+            return None
+        candidates = {c.candidate_id: c for c in obs.candidates}
+        counts = dict.fromkeys(candidates, 0)
+        result = []
+        discovered = False
+        try:
+            for item in records:
+                if item["invoked"] is not True:
+                    return None
+                method = item["method"]
+                candidate_id = item["candidate_id"]
+                call_id = item["mcp_call_id"]
+                tool_name = item["tool_name"]
+                stamp = datetime.fromisoformat(item["timestamp"])
+                if stamp.utcoffset() is None:
+                    return None
+                if method == "tools/list":
+                    if candidate_id is not None or call_id is not None or tool_name is not None:
+                        return None
+                    discovered = True
+                elif method == "tools/call":
+                    candidate = candidates.get(candidate_id)
+                    if not discovered or candidate is None or candidate.tool_name != tool_name:
+                        return None
+                    if call_id is not None and call_id != candidate.mcp_call_id:
+                        return None
+                    counts[candidate_id] += 1
+                else:
+                    return None
+                result.append((SDKCall(
+                    method=method, timestamp=stamp, candidate_id=candidate_id,
+                    mcp_call_id=call_id,
+                ), tool_name))
+        except (KeyError, TypeError, ValueError, AttributeError):
+            return None
+        times = [call.timestamp for call, _ in result]
+        if not discovered or times != sorted(times) or any(
+            candidate.sdk_call_count != counts[cid] for cid, candidate in candidates.items()
+        ):
+            return None
+        return result
 
     @staticmethod
     def _candidate(item):
