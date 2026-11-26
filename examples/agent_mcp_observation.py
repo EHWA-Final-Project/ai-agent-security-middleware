@@ -234,6 +234,8 @@ class AgentRunObservation:
 
     requested_model: str | None = None
     policy_version: str | None = None
+    output_injection_scan: bool | None = None
+    initial_inspection_mode: str | None = None
 
     run_status: str = "incomplete"
     loop_completed: bool = False
@@ -368,13 +370,25 @@ class AgentRunObservation:
         self.candidate_trace_complete = expected == actual
 
     def finalize_guard_trace(self) -> None:
-        """Conservatively verify observed A/B/C guard execution paths."""
+        """Conservatively verify observed A/B/C/D guard execution paths."""
         self.guard_trace_complete = False
 
         if (
             not self.candidate_trace_complete
             or not self.tool_executions
-            or self.condition not in {"A", "B", "C"}
+            or self.condition not in {"A", "B", "C", "D"}
+        ):
+            return
+
+        if self.condition == "D" and (
+            self.initial_inspection_mode != "FAST"
+            or self.policy_version not in {
+                "v0.1.0-cond-d-adaptive",
+                "v0.1.0-cond-d-adaptive+pit01",
+            }
+            or self.output_injection_scan is not (
+                self.policy_version.endswith("+pit01")
+            )
         ):
             return
 
@@ -402,6 +416,26 @@ class AgentRunObservation:
                 str(item.get("stage", "")).upper()
                 for item in snapshots
             ]
+
+            if self.condition == "D":
+                for item in snapshots:
+                    stage = str(item.get("stage", "")).upper()
+                    if (
+                        stage not in expected
+                        or item.get("guard_name") != f"{stage.lower()}_guard"
+                        or str(item.get("execution_status", "")).upper()
+                        != "SUCCESS"
+                        or item.get("run_id") != candidate.run_id
+                        or item.get("trace_id") != candidate.trace_id
+                    ):
+                        return
+
+                if (
+                    candidate.security_decision_snapshot.get(
+                        "policy_version"
+                    ) != self.policy_version
+                ):
+                    return
 
             if self.condition == "A":
                 if stages:
@@ -436,7 +470,7 @@ class AgentRunObservation:
 
                 valid_paths = [expected]
 
-                if self.condition == "C":
+                if self.condition in {"C", "D"}:
                     valid_paths.append(expected + ["OUTPUT"])
 
                 if stages not in valid_paths:
@@ -477,6 +511,8 @@ def public_summary(observation: AgentRunObservation) -> dict[str, Any]:
         "trial_trace_id": observation.trial_trace_id,
         "requested_model": observation.requested_model,
         "policy_version": observation.policy_version,
+        "output_injection_scan": observation.output_injection_scan,
+        "initial_inspection_mode": observation.initial_inspection_mode,
         "run_status": observation.run_status,
         "loop_completed": observation.loop_completed,
         "timed_out": observation.timed_out,
