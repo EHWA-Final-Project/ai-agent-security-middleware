@@ -30,6 +30,7 @@ from .mcp_trial_observation import (
     RuntimeIdentityBinding,
     ToolAction,
 )
+from .runtime_identity import runtime_event_group_matches
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -182,13 +183,13 @@ class RuntimeExecutionBackend:
                 events = repository.list_events_by_run(item.run_id) if repository else []
                 if set(item.evidence_refs) != {event.event_id for event in events}:
                     raise ValueError("Runtime Evidence inventory mismatch")
+                if not runtime_event_group_matches(
+                    events, item.run_id, item.trace_id, request.case["scenario_id"],
+                ):
+                    raise ValueError("Runtime Evidence identity mismatch")
+                if any(event.event_id in self.events for event in events):
+                    raise ValueError("Runtime Evidence ID reused across trials")
                 for event in events:
-                    if (event.run_id, event.trace_id, event.scenario_id) != (
-                        item.run_id, item.trace_id, request.case["scenario_id"],
-                    ):
-                        raise ValueError("Runtime Evidence identity mismatch")
-                    if event.event_id in self.events:
-                        raise ValueError("Runtime Evidence ID reused across trials")
                     self.events[event.event_id] = event
                 if repository:
                     event = SecurityEvent(
