@@ -83,7 +83,7 @@ def test_failure_records_are_preserved_without_retry(routed, backend_setup, monk
 
 
 @pytest.mark.parametrize("extra", [
-    ["--conditions", "D"], ["--conditions", "A", "C"], ["--pi-t01", "on"],
+    ["--conditions", "A", "C"],
     ["--seed", "0"], ["--seed", "7"], ["--repeats", "2"], ["--sample-id", " "],
 ])
 def test_actual_unsupported_configuration_rejected_before_inventory(tmp_path, monkeypatch, extra):
@@ -93,9 +93,10 @@ def test_actual_unsupported_configuration_rejected_before_inventory(tmp_path, mo
     assert not (tmp_path / "output").exists()
 
 
-@pytest.mark.parametrize("condition", ["A", "B", "C"])
-def test_supported_conditions(tmp_path, condition):
-    cli.validate_options(args(tmp_path, "sample", "--conditions", condition))
+@pytest.mark.parametrize("condition", ["A", "B", "C", "D"])
+@pytest.mark.parametrize("scan", ["off", "on"])
+def test_supported_conditions(tmp_path, condition, scan):
+    cli.validate_options(args(tmp_path, "sample", "--conditions", condition, "--pi-t01", scan))
 
 
 def test_validate_and_fixture_defaults_are_preserved(tmp_path):
@@ -242,3 +243,53 @@ def test_runtime_events_without_scenario_remain_unverified(routed, monkeypatch):
     events = SQLiteEvidenceRepository(calls[0][2] / "evidence.db").list_events_by_run("runtime-run-1")
     assert len(events) == 2
     assert all(e.scenario_id is None for e in events)
+
+
+def test_actual_d_on_routes_to_runtime(routed):
+    options, calls = routed
+    options.conditions = ["D"]
+    options.pi_t01 = "on"
+    result = cli.run(options)
+    assert result["exit_status"] == 0
+    assert calls[0][1].condition == "D"
+    assert calls[0][1].output_injection_scan is True
+    trial = TrialSidecar.model_validate_json((options.output_dir / "private/trial_sidecar.json").read_text())
+    assert trial.output_injection_scan is True
+    assert "+pit01" in trial.policy_version
+
+
+def test_actual_scenario_anchor_accepts_legacy_security_envelopes(routed, monkeypatch):
+    import sqlite3
+
+    from schemas.evidence import SecurityEvent
+
+    from examples import run_agent_mcp_e2e as runtime
+
+    options, _ = routed
+    original = runtime.execute_agent_case
+
+    async def anchored(*a, **kw):
+        raw = await original(*a, **kw)
+        item = raw.tool_executions[0]
+        with sqlite3.connect(raw.evidence_db_path) as con:
+            con.execute("UPDATE security_events SET scenario_id = NULL")
+        repo = SQLiteEvidenceRepository(raw.evidence_db_path)
+        repo.save_event(SecurityEvent(
+            event_id="original-runtime-anchor", run_id=item.run_id, trace_id=item.trace_id,
+            scenario_id=raw.scenario_id, event_type="RUNTIME_OBSERVATION",
+            payload={"run_id": item.run_id, "trace_id": item.trace_id, "scenario_id": raw.scenario_id},
+        ))
+        item.record_evidence(repo.list_events_by_run(item.run_id))
+        return raw
+
+    monkeypatch.setattr(runtime, "execute_agent_case", anchored)
+    result = cli.run(options)
+    assert result["exit_status"] == 0
+    assert result["evidence_validated"] is True
+    trial = TrialSidecar.model_validate_json((options.output_dir / "private/trial_sidecar.json").read_text())
+    repo = SQLiteEvidenceRepository(options.output_dir / "private/evidence.sqlite3")
+    events = {e.event_id: e for run in [trial.run_id, "runtime-run-1"] for e in repo.list_events_by_run(run)}
+    assert EvidenceView(trial, events.get).base_reason() is None
+    assert events["original-decision-id"].scenario_id is None
+    assert events["original-result-id"].scenario_id is None
+    assert trial.observation.semantic_outcomes.task.value is None

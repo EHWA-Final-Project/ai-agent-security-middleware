@@ -1,4 +1,4 @@
-"""A/B/C Runtime bridge. No replacement Agent loop and no fixture fallback.
+"""A/B/C/D Runtime bridge. No replacement Agent loop and no fixture fallback.
 
 The current Runtime returns observations only at the end of execute_agent_case.
 Cancellation is propagated, but in-flight partial observations are unavailable.
@@ -36,18 +36,18 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def runtime_policy(config):
-    """Match exactly what execute_agent_case currently loads, before execution."""
+    """Resolve the explicit Runtime condition and PI-T01 configuration."""
     if config.execution_scope != "actual_llm_mcp":
         raise UnavailableConfiguration("Runtime backend requires actual_llm_mcp scope")
-    if config.condition not in {"A", "B", "C"}:
-        raise UnavailableConfiguration("Runtime execute_agent_case supports A/B/C only")
-    if config.output_injection_scan:
-        raise UnavailableConfiguration("Runtime execute_agent_case cannot apply PI-T01 ON")
+    if config.condition not in {"A", "B", "C", "D"}:
+        raise UnavailableConfiguration("Unsupported Runtime condition")
     if config.seed is not None:
         raise UnavailableConfiguration("Runtime model client cannot apply a generation seed")
-    condition = load_condition(config.condition)
-    if condition.policy.output_injection_scan:
-        raise UnavailableConfiguration("Runtime default PI-T01 setting differs from requested OFF")
+    condition = load_condition(
+        config.condition, output_injection_scan=config.output_injection_scan,
+    )
+    if condition.policy.output_injection_scan != config.output_injection_scan:
+        raise UnavailableConfiguration("Resolved PI-T01 setting differs from request")
     flags = yaml.safe_load(condition.config_path.read_text(encoding="utf-8"))["guards"]
     enabled = flags["tool_guard"]["enabled"]
     if type(enabled) is not bool:
@@ -67,7 +67,7 @@ def runtime_model_configuration():
 
 
 class RuntimeExecutionBackend:
-    backend_id = "external-mcp-runtime-abc-off-v1"
+    backend_id = "external-mcp-runtime-abcd-pit01-v2"
     execution_scope = "actual_llm_mcp"
 
     def __init__(self, private_root: str | Path):
@@ -107,6 +107,7 @@ class RuntimeExecutionBackend:
                         raw = await execute_agent_case(
                             portal, runtime_directory, request.config.condition, case,
                             trial_run_id=request.run_id, trial_trace_id=request.trace_id,
+                            output_injection_scan=request.config.output_injection_scan,
                         )
             except asyncio.CancelledError:
                 observation.unknown_reasons["runtime_partial_observation"] = (
@@ -128,6 +129,11 @@ class RuntimeExecutionBackend:
             raise ValueError("Runtime trial identity mismatch")
         if raw.policy_version is not None and raw.policy_version != request.policy.version:
             raise ValueError("Runtime policy version mismatch")
+        if raw.output_injection_scan is not None and raw.output_injection_scan != request.config.output_injection_scan:
+            raise ValueError("Runtime PI-T01 setting mismatch")
+        expected_mode = request.policy.configuration.policy.initial_inspection_mode.value
+        if raw.initial_inspection_mode is not None and raw.initial_inspection_mode != expected_mode:
+            raise ValueError("Runtime initial inspection mode mismatch")
         if raw.requested_model is not None and raw.requested_model != request.config.model["name"]:
             raise ValueError("Runtime requested model mismatch")
         # Never create a fresh empty DB to stand in for missing Runtime Evidence.
@@ -151,6 +157,7 @@ class RuntimeExecutionBackend:
         obs.error_detail = "runtime_reported_error" if raw.error_type else None
         if obs.run_status == "completed" and (
             not raw.loop_completed or raw.policy_version is None or raw.requested_model is None
+            or raw.output_injection_scan is None or raw.initial_inspection_mode is None
         ):
             obs.run_status = "incomplete"
         previous = {}

@@ -63,16 +63,21 @@ def install_runtime(monkeypatch, setup, *, mode="normal"):
 
     calls = []
 
-    async def execute(portal, directory, condition, case, *, trial_run_id, trial_trace_id):
+    async def execute(portal, directory, condition, case, *, trial_run_id, trial_trace_id, output_injection_scan):
         from agent_mcp_observation import AgentRunObservation
 
         assert portal is not None
         assert not directory.exists()
         directory.mkdir()
+        resolved = runtime_policy(setup[2].model_copy(update={
+            "condition": condition, "output_injection_scan": output_injection_scan,
+        }))
         obs = AgentRunObservation(
             scenario_id=case.scenario_id, condition=condition,
             trial_run_id=trial_run_id, trial_trace_id=trial_trace_id,
-            requested_model=setup[2].model["name"], policy_version=runtime_policy(setup[2]).version,
+            requested_model=setup[2].model["name"], policy_version=resolved.version,
+            output_injection_scan=resolved.configuration.policy.output_injection_scan,
+            initial_inspection_mode=resolved.configuration.policy.initial_inspection_mode.value,
         )
         calls.append((case, obs, directory))
         if mode == "raise":
@@ -241,7 +246,7 @@ def test_errors_and_missing_observations_never_become_defense(setup, monkeypatch
 
 
 @pytest.mark.parametrize("changes", [
-    {"condition": "D"}, {"output_injection_scan": True}, {"seed": 7},
+    {"seed": 7},
     {"execution_scope": "fixture_execution"},
 ])
 def test_unavailable_configuration_before_io(setup, monkeypatch, changes):
@@ -264,7 +269,7 @@ def test_environment_model_mismatch_before_io(setup, monkeypatch):
     assert not setup[3].private_root.exists()
 
 
-@pytest.mark.parametrize("condition,enabled", [("A", False), ("B", True), ("C", True)])
+@pytest.mark.parametrize("condition,enabled", [("A", False), ("B", True), ("C", True), ("D", True)])
 def test_policy_resolution_matches_runtime_tool_guard(setup, condition, enabled):
     policy = runtime_policy(setup[2].model_copy(update={"condition": condition}))
     assert policy.enabled is enabled
@@ -345,12 +350,17 @@ def test_reject_repository_private_output():
         RuntimeExecutionBackend(ROOT / "private")
 
 
-@pytest.mark.parametrize("condition", ["A", "B", "C"])
-def test_backend_delegates_supported_condition(setup, monkeypatch, condition):
+@pytest.mark.parametrize("condition", ["A", "B", "C", "D"])
+@pytest.mark.parametrize("scan", [False, True])
+def test_backend_delegates_supported_condition(setup, monkeypatch, condition, scan):
     setup[2].condition = condition
+    setup[2].output_injection_scan = scan
     calls = install_runtime(monkeypatch, setup)
     trial = run(setup)
     assert calls[0][1].condition == condition
+    assert calls[0][1].output_injection_scan is scan
+    assert trial.output_injection_scan is scan
+    assert calls[0][1].initial_inspection_mode == ("FAST" if condition == "D" else "STANDARD")
     assert trial.observation.run_status == "completed"
     assert trial.evidence_validated is True
     assert trial.policy_enabled is (condition != "A")
@@ -438,3 +448,24 @@ def test_counts_do_not_fabricate_sdk_metric_or_guard_metric(setup, monkeypatch):
     assert "sdk_trace_unknown" in encoded
     assert "guard_or_candidate_trace_incomplete" in encoded
     assert "independent_judgment_missing" in encoded
+
+
+@pytest.mark.parametrize("field,value,status", [
+    ("output_injection_scan", True, "error"),
+    ("initial_inspection_mode", "FAST", "error"),
+    ("output_injection_scan", None, "incomplete"),
+    ("initial_inspection_mode", None, "incomplete"),
+])
+def test_runtime_configuration_must_be_observed(setup, monkeypatch, field, value, status):
+    from examples import run_agent_mcp_e2e as runtime
+
+    install_runtime(monkeypatch, setup)
+    original = runtime.execute_agent_case
+
+    async def changed(*args, **kwargs):
+        raw = await original(*args, **kwargs)
+        setattr(raw, field, value)
+        return raw
+
+    monkeypatch.setattr(runtime, "execute_agent_case", changed)
+    assert run(setup).observation.run_status == status

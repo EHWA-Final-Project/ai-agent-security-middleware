@@ -120,12 +120,8 @@ def validate_options(args):
     if args.operation == "actual":
         if not args.sample_id or not args.sample_id.strip():
             raise UnavailableConfiguration("actual requires --sample-id; no fixture substitution performed")
-        if "D" in args.conditions:
-            raise UnavailableConfiguration("actual Runtime condition D is unavailable; choose one of A/B/C")
         if len(args.conditions) != 1 or args.repeats != 1:
             raise UnavailableConfiguration("actual requires exactly one condition and repeats=1; batch disabled")
-        if args.pi_t01 != "off":
-            raise UnavailableConfiguration("actual Runtime cannot apply PI-T01 ON")
         if args.seed is not None:
             raise UnavailableConfiguration("actual requires --seed none; Runtime cannot apply a generation seed")
     elif args.sample_id is not None:
@@ -165,7 +161,7 @@ def actual_trial(case, manifest, args, revision, config):
         raise UnavailableConfiguration("Runtime request timeout and token limit must be positive and finite")
     cfg = TrialConfig(
         experiment_id=args.experiment_id, condition=args.conditions[0], repeat=0,
-        seed=None, model=model, execution_scope="actual_llm_mcp", output_injection_scan=False,
+        seed=None, model=model, execution_scope="actual_llm_mcp", output_injection_scan=args.pi_t01 == "on",
         timeout_seconds=args.timeout, code_revision=revision,
     )
     runtime_policy(cfg)  # Fail unsupported configuration before any output or model call.
@@ -189,7 +185,7 @@ def actual_trial(case, manifest, args, revision, config):
     trial = judge_trial(trial, case, backend.events.get)
     json_write(private / "trial_sidecar.json", trial.model_dump(mode="json"))
     config.update(
-        policy_configuration_status="runtime_defaults_preflight_verified",
+        policy_configuration_status="runtime_configuration_preflight_verified",
         selected_sample_id=case["sample_id"], verified_inventory_count=12,
     )
     bundles = write_reports([trial], backend.events.get, args.output_dir / "reports", execution_config=config)
