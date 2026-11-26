@@ -5,6 +5,7 @@ from collections.abc import Callable
 from schemas.evidence import SecurityEvent
 
 from .mcp_trial_observation import TrialSidecar
+from .runtime_identity import binding_issues, candidate_identity, evidence_identity
 
 EvidenceLookup = Callable[[str], SecurityEvent | None]
 
@@ -20,15 +21,18 @@ class EvidenceView:
         except Exception:  # noqa: BLE001 - unavailable evidence never establishes a fact
             return None
         t = self.trial
+        if binding_issues(t.observation, t.execution_scope, t.run_id, t.trace_id, t.scenario_id, self.lookup):
+            return None
+        expected_run, expected_trace = evidence_identity(t.observation, ref, t.run_id, t.trace_id)
         if event is None or (
-            event.event_id != ref or event.run_id != t.run_id or event.trace_id != t.trace_id
+            event.event_id != ref or event.run_id != expected_run or event.trace_id != expected_trace
             or event.scenario_id not in (None, t.scenario_id)
             or (kind is not None and event.event_type != kind)
             or not isinstance(event.payload, dict)
         ):
             return None
         for key, expected in (
-            ("run_id", t.run_id), ("trace_id", t.trace_id), ("scenario_id", t.scenario_id),
+            ("run_id", expected_run), ("trace_id", expected_trace), ("scenario_id", t.scenario_id),
             ("sample_id", t.sample_id), ("mapped_case_sha256", t.mapped_case_sha256),
             ("policy_version", t.policy_version),
         ):
@@ -44,6 +48,8 @@ class EvidenceView:
 
     def base_reason(self) -> str | None:
         t, obs = self.trial, self.trial.observation
+        if binding_issues(obs, t.execution_scope, t.run_id, t.trace_id, t.scenario_id, self.lookup):
+            return "runtime_binding_unverified"
         if t.execution_scope == "mapping_only":
             return "mapping_only"
         if obs.run_status != "completed":
@@ -74,7 +80,8 @@ class EvidenceView:
             refs.extend(candidate.prevention_evidence_refs or [])
             for snapshot in [candidate.security_decision, *(candidate.guard_results or [])]:
                 if snapshot is not None and (
-                    snapshot.run_id != t.run_id or snapshot.trace_id != t.trace_id
+                    (snapshot.run_id, snapshot.trace_id)
+                    != candidate_identity(obs, candidate.candidate_id, t.run_id, t.trace_id)
                 ):
                     return "snapshot_identity_mismatch"
                 if snapshot is not None and not any(
