@@ -38,6 +38,10 @@ class AgentLLMError(RuntimeError):
     """Provider call failed. The message never contains the API key."""
 
 
+class AgentLLMTimeoutError(AgentLLMError, TimeoutError):
+    """The model provider request timed out."""
+
+
 def _to_function_tools(specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     tools = []
     for spec in specs:
@@ -108,7 +112,13 @@ class OpenAICompatibleLLM:
                 data = json.loads(response.read())
         except urllib.error.HTTPError as exc:
             raise AgentLLMError(f"provider returned HTTP {exc.code}") from None
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        except TimeoutError:
+            raise AgentLLMTimeoutError("provider request timed out") from None
+        except urllib.error.URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise AgentLLMTimeoutError("provider request timed out") from None
+            raise AgentLLMError(f"provider call failed: {type(exc).__name__}") from None
+        except json.JSONDecodeError as exc:
             raise AgentLLMError(f"provider call failed: {type(exc).__name__}") from None
 
         elapsed = time.monotonic() - started

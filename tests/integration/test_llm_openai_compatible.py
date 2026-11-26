@@ -87,6 +87,7 @@ def test_http_error_message_never_contains_the_key(server):
 
 
 def test_from_env_requires_url_and_model(monkeypatch):
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
     monkeypatch.delenv("LLM_BASE_URL", raising=False)
     monkeypatch.delenv("LLM_MODEL", raising=False)
     with pytest.raises(client.AgentLLMError):
@@ -198,3 +199,52 @@ def test_response_diagnostics_count_raw_calls_without_logging_contents(server, c
     metrics = llm.decide("system", "task", [], []).diagnostics
     assert metrics["empty_response"] and metrics["text_chars"] == metrics["tool_call_count"] == 0
     assert all(metrics[k] is None for k in ("finish_reason", "response_model", "prompt_tokens", "completion_tokens"))
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_provider_timeout_is_distinguished(monkeypatch, wrapped):
+    import urllib.error
+    import urllib.request
+
+    def fail(*args, **kwargs):
+        error = TimeoutError("private timeout detail")
+        if wrapped:
+            raise urllib.error.URLError(error)
+        raise error
+
+    monkeypatch.setattr(urllib.request, "urlopen", fail)
+
+    llm = client.OpenAICompatibleLLM(
+        "http://localhost:11434/v1",
+        "fake",
+        api_key="private-key",
+    )
+
+    with pytest.raises(client.AgentLLMTimeoutError) as info:
+        llm.decide("system", "task", [], [])
+
+    assert isinstance(info.value, TimeoutError)
+    assert isinstance(info.value, client.AgentLLMError)
+    assert "private" not in str(info.value)
+
+
+def test_provider_connection_error_is_not_timeout(monkeypatch):
+    import urllib.error
+    import urllib.request
+
+    def fail(*args, **kwargs):
+        raise urllib.error.URLError(
+            ConnectionRefusedError("private connection detail")
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", fail)
+
+    llm = client.OpenAICompatibleLLM(
+        "http://localhost:11434/v1", "fake"
+    )
+
+    with pytest.raises(client.AgentLLMError) as info:
+        llm.decide("system", "task", [], [])
+
+    assert not isinstance(info.value, TimeoutError)
+    assert "private" not in str(info.value)
