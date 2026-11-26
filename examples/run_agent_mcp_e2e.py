@@ -145,6 +145,21 @@ def convert_mcp_tools(result, descriptions=None):
     return specs
 
 
+def build_tool_description_context(specs):
+    """Preserve model-visible MCP descriptions as untrusted context."""
+    return [
+        {
+            "content": spec["description"],
+            "source": "tool_description",
+            "origin": "mcp",
+            "server_id": spec["name"].split("/", 1)[0],
+            "item_name": spec["name"],
+            "trust": "untrusted",
+        }
+        for spec in specs
+    ]
+
+
 def model_tools(specs):
     """Map MCP namespaced tools to provider-safe function names."""
     mapping = {}
@@ -282,10 +297,14 @@ async def _run_e2e_impl(
         discovered = await observed.list_tools()
         tools = await discover_tools("demo", observed, portal)
 
-        specs, mapping = model_tools(convert_mcp_tools(
+        mcp_specs = convert_mcp_tools(
             discovered,
             case.tool_descriptions if case is not None else None,
-        ))
+        )
+        tool_description_context = build_tool_description_context(
+            mcp_specs
+        )
+        specs, mapping = model_tools(mcp_specs)
         print("MCP tools/list:", sorted(tools), flush=True)
 
         document_context = []
@@ -430,7 +449,10 @@ async def _run_e2e_impl(
 
             request = RuntimeRequest(
                 user_input=messages[1]["content"],
-                context_items=list(document_context),
+                context_items=[
+                    *tool_description_context,
+                    *document_context,
+                ],
                 session_id="agent-mcp-e2e",
                 scenario_id=(
                     case.scenario_id

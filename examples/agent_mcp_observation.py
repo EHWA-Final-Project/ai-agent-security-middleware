@@ -1,6 +1,7 @@
 """Internal observations for the actual Agent-MCP execution path."""
 
 import json
+import math
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
@@ -371,6 +372,108 @@ class AgentRunObservation:
 
         self.candidate_trace_complete = expected == actual
 
+    def _verify_risk_based_pre_block(self, candidate) -> bool:
+        """Verify a threshold BLOCK against observed results and policy."""
+        from security.policy.conditions import load_condition
+
+        if self.condition not in {"B", "C", "D"}:
+            return False
+
+        if not isinstance(self.output_injection_scan, bool):
+            return False
+
+        policy = load_condition(
+            self.condition,
+            output_injection_scan=self.output_injection_scan,
+        ).policy
+
+        decision = candidate.security_decision_snapshot
+
+        if (
+            not isinstance(decision, dict)
+            or decision.get("decision") != "BLOCK"
+            or not candidate.run_id
+            or not candidate.trace_id
+            or decision.get("run_id") != candidate.run_id
+            or decision.get("trace_id") != candidate.trace_id
+            or decision.get("policy_version") != self.policy_version
+            or policy.policy_version != self.policy_version
+            or policy.initial_inspection_mode.value
+            != self.initial_inspection_mode
+            or "SECURITY_RESULT"
+            not in candidate.evidence_event_types.values()
+        ):
+            return False
+
+        snapshots = candidate.security_result_snapshots
+        threshold = policy.block_threshold
+        risk = 0.0
+        product = 1.0
+        rules = []
+
+        for index, item in enumerate(snapshots):
+            stage = str(item.get("stage", "")).upper()
+            guard_name = item.get("guard_name")
+            score = item.get("risk_score")
+            item_rules = item.get("rule_ids")
+
+            if (
+                guard_name != f"{stage.lower()}_guard"
+                or item.get("execution_status") != "SUCCESS"
+                or item.get("run_id") != candidate.run_id
+                or item.get("trace_id") != candidate.trace_id
+                or item.get("decision") not in {"ALLOW", "WARN"}
+                or type(score) not in {int, float}
+                or not math.isfinite(score)
+                or not 0.0 <= score <= 1.0
+                or not isinstance(item_rules, list)
+                or any(not isinstance(rule, str) for rule in item_rules)
+                or any(policy.is_critical_rule(rule) for rule in item_rules)
+            ):
+                return False
+
+            rules.extend(item_rules)
+
+            if self.condition == "B":
+                risk = max(risk, score)
+            else:
+                product *= 1 - policy.weight_for(guard_name) * score
+                risk = 1 - product
+
+            # The run must stop at the first threshold crossing.
+            if index < len(snapshots) - 1 and risk >= threshold:
+                return False
+
+        if not snapshots or risk < threshold:
+            return False
+
+        recorded_risk = decision.get("cumulative_risk_score")
+
+        if (
+            type(recorded_risk) not in {int, float}
+            or not math.isfinite(recorded_risk)
+            or not math.isclose(
+                recorded_risk, risk, rel_tol=1e-9, abs_tol=1e-9
+            )
+            or decision.get("triggered_rules") != rules
+        ):
+            return False
+
+        if self.condition == "B":
+            last = snapshots[-1]
+            expected_reason = (
+                f"independent mode: guard '{last['guard_name']}' "
+                f"risk_score {last['risk_score']:.2f} "
+                "exceeded block_threshold"
+            )
+        else:
+            expected_reason = (
+                f"cumulative_risk_score {risk:.2f} "
+                "exceeded block_threshold"
+            )
+
+        return decision.get("reason") == expected_reason
+
     def finalize_guard_trace(self) -> None:
         """Conservatively verify observed A/B/C/D guard execution paths."""
         self.guard_trace_complete = False
@@ -456,11 +559,13 @@ class AgentRunObservation:
                 ):
                     return
 
-                # Require direct evidence of an early Guard BLOCK.
-                # Other aggregate blocking paths remain unverified.
-                if str(
-                    snapshots[-1].get("decision", "")
-                ).upper() != "BLOCK":
+                # Preserve direct BLOCK validation and verify
+                # threshold-based early BLOCK paths separately.
+                if (
+                    str(snapshots[-1].get("decision", "")).upper()
+                    != "BLOCK"
+                    and not self._verify_risk_based_pre_block(candidate)
+                ):
                     return
 
             elif candidate.execution_state == "EXECUTED":

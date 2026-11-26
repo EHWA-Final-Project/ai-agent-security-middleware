@@ -248,3 +248,152 @@ def test_timeout_exception_classification(error, expected):
     from run_agent_mcp_e2e import _is_timeout_exception
 
     assert _is_timeout_exception(error) is expected
+
+@pytest.mark.parametrize("condition_name", ["B", "C", "D"])
+@pytest.mark.parametrize(
+    "variant, expected",
+    [
+        ("valid", True),
+        ("below_threshold", False),
+        ("wrong_recorded_risk", False),
+        ("wrong_reason", False),
+        ("wrong_policy", False),
+        ("wrong_guard_run_id", False),
+        ("wrong_decision_trace_id", False),
+        ("wrong_triggered_rules", False),
+        ("failed_guard", False),
+        ("missing_result_evidence", False),
+        ("unexpected_sdk_call", False),
+        ("missing_guard", False),
+        ("wrong_guard_name", False),
+        ("missing_risk", False),
+        ("wrong_final_decision", False),
+        ("early_threshold_crossing", False),
+    ],
+)
+def test_risk_based_pre_block_trace(
+    condition_name, variant, expected
+):
+    from types import SimpleNamespace
+
+    policy = load_condition(
+        condition_name, output_injection_scan=False
+    ).policy
+
+    observation = AgentRunObservation(
+        "risk-block-trace-test", condition_name
+    )
+    observation.mark_completed()
+    observation.candidate_trace_complete = True
+    observation.policy_version = policy.policy_version
+    observation.output_injection_scan = False
+    observation.initial_inspection_mode = (
+        policy.initial_inspection_mode.value
+    )
+
+    rule = "context_guard.indirect_prompt_injection"
+
+    snapshots = [
+        {
+            "stage": "INPUT",
+            "guard_name": "input_guard",
+            "execution_status": "SUCCESS",
+            "decision": "ALLOW",
+            "risk_score": 0.0,
+            "rule_ids": [],
+            "run_id": "runtime-run",
+            "trace_id": "runtime-trace",
+        },
+        {
+            "stage": "CONTEXT",
+            "guard_name": "context_guard",
+            "execution_status": "SUCCESS",
+            "decision": "WARN",
+            "risk_score": 0.88,
+            "rule_ids": [rule],
+            "run_id": "runtime-run",
+            "trace_id": "runtime-trace",
+        },
+    ]
+
+    risk = (
+        0.88 if condition_name == "B"
+        else 1 - (1 - policy.weight_for("context_guard") * 0.88)
+    )
+
+    reason = (
+        "independent mode: guard 'context_guard' "
+        "risk_score 0.88 exceeded block_threshold"
+        if condition_name == "B"
+        else f"cumulative_risk_score {risk:.2f} exceeded block_threshold"
+    )
+
+    decision = {
+        "run_id": "runtime-run",
+        "trace_id": "runtime-trace",
+        "policy_version": policy.policy_version,
+        "decision": "BLOCK",
+        "reason": reason,
+        "cumulative_risk_score": risk,
+        "triggered_rules": [rule],
+    }
+
+    candidate = SimpleNamespace(
+        runtime_status="COMPLETED",
+        runtime_error_codes=[],
+        evidence_identity_verified=True,
+        run_id="runtime-run",
+        trace_id="runtime-trace",
+        security_decision="BLOCK",
+        security_decision_snapshot=decision,
+        security_result_snapshots=snapshots,
+        evidence_event_types={
+            "input-event": "SECURITY_RESULT",
+            "context-event": "SECURITY_RESULT",
+            "decision-event": "SECURITY_DECISION",
+            "execution-event": "EXECUTION_RESULT",
+        },
+        execution_state="BLOCKED",
+        tool_executed=False,
+        sdk_call_count=0,
+        output_allowed=False,
+    )
+
+    if variant == "below_threshold":
+        snapshots[-1]["risk_score"] = 0.20
+        decision["cumulative_risk_score"] = 0.20
+        decision["reason"] = reason.replace("0.88", "0.20")
+    elif variant == "wrong_recorded_risk":
+        decision["cumulative_risk_score"] = 0.99
+    elif variant == "wrong_reason":
+        decision["reason"] = "unknown block reason"
+    elif variant == "wrong_policy":
+        decision["policy_version"] = "unknown-policy"
+    elif variant == "wrong_guard_run_id":
+        snapshots[-1]["run_id"] = "wrong-run"
+    elif variant == "wrong_decision_trace_id":
+        decision["trace_id"] = "wrong-trace"
+    elif variant == "wrong_triggered_rules":
+        decision["triggered_rules"] = []
+    elif variant == "failed_guard":
+        snapshots[-1]["execution_status"] = "ERROR"
+    elif variant == "missing_result_evidence":
+        candidate.evidence_event_types.pop("input-event")
+        candidate.evidence_event_types.pop("context-event")
+    elif variant == "unexpected_sdk_call":
+        candidate.sdk_call_count = 1
+    elif variant == "missing_guard":
+        snapshots.pop(0)
+    elif variant == "wrong_guard_name":
+        snapshots[-1]["guard_name"] = "unknown_guard"
+    elif variant == "missing_risk":
+        snapshots[-1]["risk_score"] = None
+    elif variant == "wrong_final_decision":
+        decision["decision"] = "ALLOW"
+    elif variant == "early_threshold_crossing":
+        snapshots[0]["risk_score"] = 1.0
+
+    observation.tool_executions.append(candidate)
+    observation.finalize_guard_trace()
+
+    assert observation.guard_trace_complete is expected
