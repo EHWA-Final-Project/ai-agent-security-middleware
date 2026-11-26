@@ -213,3 +213,38 @@ def test_d_guard_trace_paths(variant, expected):
     observation.finalize_guard_trace()
 
     assert observation.guard_trace_complete is expected
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (TimeoutError(), True),
+        (RuntimeError(), False),
+        (ExceptionGroup("timeout", [TimeoutError()]), True),
+        (
+            ExceptionGroup(
+                "nested",
+                [
+                    TimeoutError(),
+                    ExceptionGroup("inner", [TimeoutError()]),
+                ],
+            ),
+            True,
+        ),
+        (
+            ExceptionGroup(
+                "mixed",
+                [TimeoutError(), RuntimeError()],
+            ),
+            False,
+        ),
+        (
+            ExceptionGroup("ordinary", [RuntimeError()]),
+            False,
+        ),
+    ],
+)
+def test_timeout_exception_classification(error, expected):
+    from run_agent_mcp_e2e import _is_timeout_exception
+
+    assert _is_timeout_exception(error) is expected

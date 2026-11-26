@@ -642,6 +642,16 @@ async def _run_e2e_impl(
         return False
 
 
+def _is_timeout_exception(exc: BaseException) -> bool:
+    """Classify timeout-only exception groups without hiding other errors."""
+    if isinstance(exc, BaseExceptionGroup):
+        return all(
+            _is_timeout_exception(child)
+            for child in exc.exceptions
+        )
+    return isinstance(exc, TimeoutError)
+
+
 async def run_e2e(
     portal, directory, condition_name, scenario,
     case: AgentCaseInput | None = None,
@@ -684,9 +694,11 @@ async def run_e2e(
         )
         raise
     except Exception as exc:
+        timed_out = _is_timeout_exception(exc)
         observation.mark_error(
             "agent_execution",
-            type(exc).__name__,
+            "TimeoutError" if timed_out else type(exc).__name__,
+            timed_out=timed_out,
         )
         raise
 
