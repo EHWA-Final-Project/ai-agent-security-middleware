@@ -6,6 +6,8 @@ PluginManager 기반 Guard Plugin과 SecurityContext 기반 Cross-layer Coordina
 
 ## Final integration · 2026-11-27
 
+Freeze 이후 Dashboard UI를 Academic Security Research Console로 개선했습니다. 정책·데이터·평가 계산과 기존 `guardon-freeze-20261127` tag는 유지합니다. [디자인·브라우저 검증 기록](docs/DASHBOARD_REDESIGN.md), [Before / After 캡처](docs/assets/dashboard-redesign/README.md)를 확인하세요.
+
 ```powershell
 uv sync --locked --group dev --group demo
 uv run streamlit run demo/final_dashboard.py
