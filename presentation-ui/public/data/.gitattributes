@@ -1,0 +1,3 @@
+# Preserve the deterministic export and the original Git CSV bytes on Windows.
+*.json -text
+*.csv -text
