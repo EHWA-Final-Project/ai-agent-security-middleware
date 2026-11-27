@@ -8,7 +8,7 @@
 
 1. #45 Runtime → dev merge `18ee09314f4ede98f9e52df03807df057fbaee58`.
 2. #46 Evaluation → dev merge `f50cf33cda48e3bd1d9b675bf1f9be231e811614`. Runtime 관련 7개 파일은 #45와 동일했고 재계산 후 55개 추가 파일이 남았다. 실제 평가 Backend·산출물 누락 없이 통합했다. 생성 SVG 5개의 줄 끝 공백을 전용 worktree에서 제거해 원래 PR에 fast-forward 추가했다(`3731de5717eb09c511558f984340a96329d6384a`). `git diff --ignore-space-at-eol --exit-code`로 비의미 변경임을 확인했다.
-3. #47 확장 규칙은 Runtime/Evaluation을 결합한 상태에서 검증한다. 기본 OFF, 기존 A/B/C 의미와 ToolPolicy/임계값/공통 DTO 유지.
+3. #47 확장 규칙은 Runtime/Evaluation을 결합한 상태에서 검증 후 dev merge `e26ca351ee227c1d439d3cef63ac6d21d3ba7f1e`. 기본 OFF, 기존 A/B/C 의미와 ToolPolicy/임계값/공통 DTO 유지.
 4. Dashboard/Replay/공개 Runtime 인계 importer/시연 launcher/최종 문서를 별도 통합 PR로 반영한다.
 
 #39와 #14는 이번 작업에 병합하지 않는다. #41은 발표 자료 작업으로 별도 유지한다.
@@ -19,7 +19,9 @@
 |---|---|---|---|
 | #45 통합 | 1,218 passed / 2 skipped (280.29s) | PASS | PASS |
 | #46 통합 | 1,325 passed / 2 skipped (237.25s) | PASS | SVG 공백 정리 후 PASS |
-| #47 + 최종 Dashboard | 최종 gate 결과 참조 | 최종 gate 결과 참조 | 최종 gate 결과 참조 |
+| #47 + 최종 Dashboard (`72add62956b6f74b33d38c9972b9ddc109123f5d`) | 1,349 passed / 2 skipped (227.51s) | PASS | PASS |
+
+위 통합 커밋 전체 재실행 통과 후 #47을 병합했다. 마지막 dev merge SHA에서도 같은 전체 gate를 다시 실행하고 아래 SHA별 로그 및 Freeze tag로 확정한다. Git Bash에서 공개 결과 테스트 8개 통과, PowerShell 시연 스크립트 구문 검사 오류 0건을 확인했다.
 
 새 Dashboard 첫 전체 실행에서는 테스트가 Streamlit 이미지 요소를 `imgs`로 잘못 조회해 실패했다. `image` 요소를 조회하도록 테스트 API 사용을 수정했으며 그래프 5개라는 검증 기준은 유지했다. 수정 후 해당 Dashboard 테스트는 통과했다. 기존 실패를 skip하거나 기존 보안 기대값을 완화하지 않았다.
 
