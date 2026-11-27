@@ -85,17 +85,37 @@ server.run(transport="stdio")
 
 
 class ObservedSession:
-    """Count actual entries to the MCP SDK call_tool boundary."""
+    """Observe actual entries to MCP SDK invocation boundaries."""
 
-    def __init__(self, session):
+    def __init__(self, session, observation=None):
         self.session = session
+        self.observation = observation
         self.calls = 0
+        self.active_candidate_id = None
+
+    def _record_invocation(self, method, tool_name=None):
+        from datetime import UTC, datetime
+
+        if self.observation is not None:
+            self.observation.sdk_calls.append({
+                "method": method,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "candidate_id": (
+                    self.active_candidate_id
+                    if method == "tools/call" else None
+                ),
+                "tool_name": tool_name,
+                "invoked": True,
+                "mcp_call_id": None,
+            })
 
     async def list_tools(self):
+        self._record_invocation("tools/list")
         return await self.session.list_tools()
 
     async def call_tool(self, name, arguments):
         self.calls += 1
+        self._record_invocation("tools/call", f"demo/{name}")
         return await self.session.call_tool(name, arguments)
 
 
@@ -125,6 +145,21 @@ def convert_mcp_tools(result, descriptions=None):
     return specs
 
 
+def build_tool_description_context(specs):
+    """Preserve model-visible MCP descriptions as untrusted context."""
+    return [
+        {
+            "content": spec["description"],
+            "source": "tool_description",
+            "origin": "mcp",
+            "server_id": spec["name"].split("/", 1)[0],
+            "item_name": spec["name"],
+            "trust": "untrusted",
+        }
+        for spec in specs
+    ]
+
+
 def model_tools(specs):
     """Map MCP namespaced tools to provider-safe function names."""
     mapping = {}
@@ -142,6 +177,8 @@ async def _run_e2e_impl(
     portal, directory, condition_name, scenario,
     case: AgentCaseInput | None = None,
     observation: AgentRunObservation | None = None,
+    *,
+    output_injection_scan: bool | None = None,
 ):
     if case is not None:
         scenario = "external"
@@ -200,7 +237,10 @@ async def _run_e2e_impl(
         },
     )
 
-    condition = load_condition(condition_name)
+    condition = load_condition(
+        condition_name,
+        output_injection_scan=output_injection_scan,
+    )
     policy = ToolPolicy(
         allowed_tools=frozenset({"demo/read_file"}),
         allowed_path_prefixes=("docs",),
@@ -213,6 +253,12 @@ async def _run_e2e_impl(
 
     observation.requested_model = llm.model
     observation.policy_version = condition.policy.policy_version
+    observation.output_injection_scan = (
+        condition.policy.output_injection_scan
+    )
+    observation.initial_inspection_mode = (
+        condition.policy.initial_inspection_mode.value
+    )
 
     if case is not None:
         prompt = case.user_input
@@ -237,6 +283,8 @@ async def _run_e2e_impl(
 
     print(f"Condition={condition_name}")
     print(f"Policy={condition.policy.policy_version}")
+    print(f"PI-T01={observation.output_injection_scan}")
+    print(f"Initial inspection={observation.initial_inspection_mode}")
     print(f"Model requested={llm.model}")
 
     async with (
@@ -244,15 +292,19 @@ async def _run_e2e_impl(
         ClientSession(read, write) as session,
     ):
         await session.initialize()
-        observed = ObservedSession(session)
+        observed = ObservedSession(session, observation)
 
         discovered = await observed.list_tools()
         tools = await discover_tools("demo", observed, portal)
 
-        specs, mapping = model_tools(convert_mcp_tools(
+        mcp_specs = convert_mcp_tools(
             discovered,
             case.tool_descriptions if case is not None else None,
-        ))
+        )
+        tool_description_context = build_tool_description_context(
+            mcp_specs
+        )
+        specs, mapping = model_tools(mcp_specs)
         print("MCP tools/list:", sorted(tools), flush=True)
 
         document_context = []
@@ -397,7 +449,10 @@ async def _run_e2e_impl(
 
             request = RuntimeRequest(
                 user_input=messages[1]["content"],
-                context_items=list(document_context),
+                context_items=[
+                    *tool_description_context,
+                    *document_context,
+                ],
                 session_id="agent-mcp-e2e",
                 scenario_id=(
                     case.scenario_id
@@ -422,10 +477,12 @@ async def _run_e2e_impl(
                     ),
                 )
 
+            observed.active_candidate_id = candidate.candidate_id
             try:
                 result = await anyio.to_thread.run_sync(execute)
             finally:
                 candidate.sdk_call_count = observed.calls - before
+                observed.active_candidate_id = None
 
             candidate.record_runtime_result(result)
             candidate.runtime_scenario_id = result.identity.scenario_id
@@ -629,10 +686,22 @@ async def _run_e2e_impl(
         return False
 
 
+def _is_timeout_exception(exc: BaseException) -> bool:
+    """Classify timeout-only exception groups without hiding other errors."""
+    if isinstance(exc, BaseExceptionGroup):
+        return all(
+            _is_timeout_exception(child)
+            for child in exc.exceptions
+        )
+    return isinstance(exc, TimeoutError)
+
+
 async def run_e2e(
     portal, directory, condition_name, scenario,
     case: AgentCaseInput | None = None,
     observation: AgentRunObservation | None = None,
+    *,
+    output_injection_scan: bool | None = None,
 ):
     scenario_id = case.scenario_id if case is not None else scenario
 
@@ -659,6 +728,7 @@ async def run_e2e(
             scenario,
             case,
             observation,
+            output_injection_scan=output_injection_scan,
         )
     except TimeoutError:
         observation.mark_error(
@@ -668,9 +738,11 @@ async def run_e2e(
         )
         raise
     except Exception as exc:
+        timed_out = _is_timeout_exception(exc)
         observation.mark_error(
             "agent_execution",
-            type(exc).__name__,
+            "TimeoutError" if timed_out else type(exc).__name__,
+            timed_out=timed_out,
         )
         raise
 
@@ -688,6 +760,7 @@ async def execute_agent_case(
     *,
     trial_run_id: str | None = None,
     trial_trace_id: str | None = None,
+    output_injection_scan: bool | None = None,
 ) -> AgentRunObservation:
     """Execute an external case and return private runtime observations.
 
@@ -695,8 +768,8 @@ async def execute_agent_case(
     Semantic evaluation is the caller's responsibility.
     """
 
-    if condition_name not in {"A", "B", "C"}:
-        raise ValueError("Only conditions A/B/C are currently supported")
+    if condition_name not in {"A", "B", "C", "D"}:
+        raise ValueError("Only conditions A/B/C/D are supported")
 
     if (trial_run_id is None) != (trial_trace_id is None):
         raise ValueError("Trial run_id and trace_id must be supplied together")
@@ -724,6 +797,7 @@ async def execute_agent_case(
             "external",
             case,
             observation,
+            output_injection_scan=output_injection_scan,
         )
     except Exception as exc:  # noqa: BLE001
         if observation.run_status not in {"error", "timeout"}:
@@ -752,7 +826,15 @@ async def execute_agent_case(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--condition", choices=("A", "B", "C"), default="C")
+    parser.add_argument(
+        "--condition", choices=("A", "B", "C", "D"), default="C"
+    )
+    parser.add_argument(
+        "--pit01",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable tool-output injection scanning",
+    )
     parser.add_argument(
         "--scenario",
         choices=("normal", "unauthorized-email", "indirect-injection"),
@@ -777,7 +859,10 @@ def main():
                 start_blocking_portal() as portal,
             ):
                 success = portal.call(
-                    run_e2e, portal, directory, args.condition, args.scenario
+                    lambda: run_e2e(
+                        portal, directory, args.condition, args.scenario,
+                        output_injection_scan=args.pit01,
+                    )
                 )
             print(log_path.read_text(encoding="utf-8"))
             print(f"Evidence directory: {directory}")
@@ -788,7 +873,10 @@ def main():
             start_blocking_portal() as portal,
         ):
             success = portal.call(
-                run_e2e, portal, Path(temporary), args.condition, args.scenario
+                lambda: run_e2e(
+                    portal, Path(temporary), args.condition, args.scenario,
+                    output_injection_scan=args.pit01,
+                )
             )
         return 0 if success else 1
 
