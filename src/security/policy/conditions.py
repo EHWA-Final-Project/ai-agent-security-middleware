@@ -75,6 +75,7 @@ def load_condition(
     *,
     block_threshold: float | None = None,
     output_injection_scan: bool | None = None,
+    extended_injection_rules: bool | None = None,
 ) -> Condition:
     """Load a condition's policy.
 
@@ -87,6 +88,9 @@ def load_condition(
     ``output_injection_scan`` turns the Output Guard's tool-output injection
     scan (PI-T01) on or off. A change from the file value is appended to
     policy_version as ``+pit01`` so results with and without it never mix.
+
+    ``extended_injection_rules`` turns the extended rule set for untrusted content
+    on or off; a change from the file value is appended as ``+inj2``.
     """
     path = condition_path(name)
     policy = load_policy_config(path)
@@ -105,6 +109,14 @@ def load_condition(
                 "policy_version": f"{policy.policy_version}{suffix}",
             }
         )
+    if extended_injection_rules is not None and extended_injection_rules != policy.extended_injection_rules:
+        suffix = "+inj2" if extended_injection_rules else ""
+        policy = policy.model_copy(
+            update={
+                "extended_injection_rules": extended_injection_rules,
+                "policy_version": f"{policy.policy_version}{suffix}",
+            }
+        )
     return Condition(name=name.upper(), config_path=path, policy=policy)
 
 
@@ -118,8 +130,9 @@ def build_plugin_manager(condition: Condition, *, tool_policy=None) -> PluginMan
     argument scope; ``None`` keeps the baseline behaviour.
     """
     manager = PluginManager()
-    output_guard = OutputGuard(scan_injection=condition.policy.output_injection_scan)
-    for guard in (InputGuard(), ContextGuard(), ToolGuard(tool_policy), output_guard):
+    extended = condition.policy.extended_injection_rules
+    output_guard = OutputGuard(scan_injection=condition.policy.output_injection_scan, extended_rules=extended)
+    for guard in (InputGuard(), ContextGuard(extended_rules=extended), ToolGuard(tool_policy), output_guard):
         manager.register_guard(guard)
     manager.load_from_config(str(condition.config_path))
     return manager

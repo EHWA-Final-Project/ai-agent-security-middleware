@@ -122,6 +122,80 @@ RULES: tuple[Rule, ...] = (
     _r("steer.hidden_url", "steer", WEAK, r"\bhttps?://\S+"),
 )
 
+#: Extended rule set (policy field ``extended_injection_rules``, off by default).
+#: Aimed at untrusted *content* (tool output, tool descriptions, documents) that
+#: tries to steer the answer or to pose as the user, without classic override
+#: wording. Only used for the context-style scan. Developed on the BIPIA train
+#: split and evaluated on its test split.
+_RESP = r"your\s+(?:response|reply|answer|message|output)(?:'s|s)?"
+_IMPERATIVE = (
+    r"(?:replace|substitute|convert|translate|encode|decode|reverse|rewrite|rephrase|reorder|rearrange|"
+    r"scramble|jumble|shuffle|misspell|introduce|insert|add|append|prepend|include|integrate|incorporate|"
+    r"embed|modify|augment|enhance|extend|alter|change|format|provide|render|present|deliver|give|write|"
+    r"compose|use|apply|remove|delete|omit|drop|group|combine|merge|split|anagram|capitali[sz]e|uppercase|"
+    r"lowercase|repeat|end|start|begin|finish|conclude|mention|state|say|respond|answer|reply|output|print|"
+    r"express|highlight|emphasi[sz]e|promote|suggest|recommend|encourage|invite|tease|hint)"
+)
+EXTENDED_RULES: tuple[Rule, ...] = (
+    # An imperative sentence about the assistant's own answer ("Replace letters with
+    # numbers in your answer", "Render your message using ...") inside data.
+    _r("directive.reshape_response", "directive", MEDIUM,
+       rf"(?:^|[.!?:;|\"\u201c)]\s*|\bplease\s+)(?:also\s+|then\s+)?{_IMPERATIVE}\b[^.!?]{{0,140}}?\b{_RESP}\b"
+       rf"|\b(?:in|within)\s+your\s+(?:response|reply|answer),\s+[a-z]+\b"),
+    # Content that poses as a message from the user / a finished task.
+    _r("impersonation.user_message", "impersonation", MEDIUM,
+       r"\b(?:this|here)\s+is\s+(?:an?\s+)?(?:important\s+|urgent\s+)?(?:message|note|instruction)s?\s+from\s+(?:the\s+)?"
+       r"(?:user|system|developer|admin)\b"
+       r"|\bsigned,?\s+the\s+(?:user|admin|system)\b"
+       r"|\bthe\s+previous\s+task\s+has\s+been\s+completed\b"
+       r"|\bnew\s+user\s+query\s*:"
+       r"|\bbefore\s+you\s+(?:can\s+)?(?:solve|complete|do|answer|start)\b[^.\n]{0,80}\b(?:please\s+)?do\s+the\s+following\b"
+       r"|\byou\s+must\s+strictly\s+(?:adhere|follow)\b"),
+    # Content that asks the assistant to hide something from the user.
+    _r("directive.hide_from_user", "directive", MEDIUM,
+       r"\b(?:do\s+not|don't|never)\s+(?:tell|inform|mention|reveal|show|notify)\b[^.\n]{0,20}\bthe\s+user\b"
+       r"|\bwithout\s+(?:telling|informing|notifying|alerting)\s+the\s+user\b"),
+)
+
+_EXT_NEEDS: dict[str, tuple[str, ...]] = {
+    "directive.reshape_response": (
+        "your response", "your reply", "your answer", "your message", "your output",
+    ),
+    "impersonation.user_message": (
+        "message from", "note from", "instruction from", "instructions from", "signed", "previous task",
+        "new user query", "before you", "must strictly",
+    ),
+    "directive.hide_from_user": (
+        "the user",
+    ),
+}
+
+#: Tabular tool output with a plain sentence under the table ("What is the
+#: capital of Brazil?", "Explain the theory of relativity."): data rows start
+#: with "|", so an extra question or imperative line is not table content.
+_TABLE_ROW = re.compile(r"^\s*\|")
+_TRAILING_STARTS = re.compile(
+    r"^(?:please\s+)?(?:what|who|whom|whose|how|why|when|where|which|can|could|would|will|is|are|do|does|"
+    r"explain|describe|write|draft|provide|compose|develop|break|translate|show|give|list|summari[sz]e|tell|"
+    r"create|generate|determine|analy[sz]e|solve|calculate|find|identify|compare|discuss|outline|produce|"
+    r"prepare|design|suggest|recommend|rewrite|convert|replace|add|include|use|respond|reply|answer)\b",
+    re.IGNORECASE,
+)
+_TABLE_RULE = "structure.tabular_trailing_instruction"
+
+
+def _tabular_trailing_instruction(text: str) -> Match | None:
+    lines = [ln.strip() for ln in unicodedata.normalize("NFKC", text).splitlines() if ln.strip()]
+    if sum(1 for ln in lines if _TABLE_ROW.match(ln)) < 3:
+        return None
+    for ln in lines:
+        if _TABLE_ROW.match(ln) or len(ln.split()) < 3:
+            continue
+        if ln.endswith("?") or _TRAILING_STARTS.match(ln):
+            return Match(_TABLE_RULE, "structure", MEDIUM, ln[:120], "plain")
+    return None
+
+
 #: Trigger words per rule for the gated scan (condition D, FAST mode). A rule is
 #: skipped only if NONE of its words occurs in the normalised text, so each entry
 #: must be a necessary condition for the rule's regex: every possible match
@@ -207,23 +281,28 @@ class Match:
     variant: str  # "plain" | "squashed" | "base64"
 
 
-def scan(text: str, *, guard: str, gated: bool = False) -> list[Match]:
+def scan(text: str, *, guard: str, gated: bool = False, extended: bool = False) -> list[Match]:
     """Return distinct rule matches for ``text`` (``guard`` = input|context).
 
     ``gated=True`` skips a rule when none of its trigger words (``_RULE_NEEDS``)
     occurs in the text. It returns exactly the same matches as the ungated scan;
     it only avoids running regexes that cannot match. Used by condition D while
     no risk has been seen in the run.
+
+    ``extended=True`` adds ``EXTENDED_RULES`` and the tabular check (context-style
+    scan only). Off by default, so the default behaviour is unchanged.
     """
     norm = normalize(text)
     matches: dict[str, Match] = {}
 
+    rules_in_use = RULES + EXTENDED_RULES if (extended and guard == "context") else RULES
+
     def run(candidate: str, variant: str) -> None:
-        for rule in RULES:
+        for rule in rules_in_use:
             if rule.only_for not in (None, guard) or rule.rule in matches:
                 continue
             if gated:
-                needs = _RULE_NEEDS.get(rule.rule)
+                needs = _RULE_NEEDS.get(rule.rule) or _EXT_NEEDS.get(rule.rule)
                 if needs is not None and not any(word in candidate for word in needs):
                     continue
             m = rule.pattern.search(candidate)
@@ -231,6 +310,10 @@ def scan(text: str, *, guard: str, gated: bool = False) -> list[Match]:
                 matches[rule.rule] = Match(rule.rule, rule.family, rule.tier, m.group(0).strip(), variant)
 
     run(norm, "plain")
+    if extended and guard == "context" and (not gated or "|" in text):
+        table_match = _tabular_trailing_instruction(text)
+        if table_match is not None:
+            matches[table_match.rule] = table_match
 
     squashed = _squash(norm)
     for rule_name, phrases in _STRONG_SQUASHED.items():
