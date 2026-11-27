@@ -1,0 +1,48 @@
+{
+  "source_file": "trial_observations.json",
+  "source_sha256": "62c060a495b99b56e61f936e71d1c897f1a55ee1981efba441cc4d1b3c79ac23",
+  "unit": "seconds",
+  "scope": "completed evidence-validated backend runs",
+  "p95_method": "linear interpolation",
+  "completed": 41,
+  "excluded": 7,
+  "inference_launched": false,
+  "summary": [
+    {
+      "condition": "A",
+      "completed": 10,
+      "attempted": 12,
+      "excluded": 2,
+      "mean_s": 275.2718534999993,
+      "p50_s": 194.98182819999056,
+      "p95_s": 553.2677129499729
+    },
+    {
+      "condition": "B",
+      "completed": 10,
+      "attempted": 12,
+      "excluded": 2,
+      "mean_s": 314.551033170009,
+      "p50_s": 205.84838934999425,
+      "p95_s": 716.0169256150252
+    },
+    {
+      "condition": "C",
+      "completed": 10,
+      "attempted": 12,
+      "excluded": 2,
+      "mean_s": 263.1796435399912,
+      "p50_s": 223.47704169998178,
+      "p95_s": 478.73746880499516
+    },
+    {
+      "condition": "D",
+      "completed": 11,
+      "attempted": 12,
+      "excluded": 1,
+      "mean_s": 328.67937428181443,
+      "p50_s": 258.21396139997523,
+      "p95_s": 699.083543899993
+    }
+  ]
+}
