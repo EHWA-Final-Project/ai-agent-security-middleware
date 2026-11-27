@@ -41,6 +41,9 @@ class ContextGuard(GuardPlugin):
     name = "context_guard"
     stage = Stage.CONTEXT
 
+    def __init__(self, *, extended_rules: bool = False) -> None:
+        self._extended = extended_rules
+
     def inspect(self, observation: RuntimeObservation, context: SecurityContext) -> SecurityResult:
         start = time.perf_counter()
 
@@ -89,13 +92,13 @@ class ContextGuard(GuardPlugin):
             latency_ms=latency_ms,
         )
 
-    @staticmethod
-    def _scan_full(items: list[Any]) -> list[rules.Match]:
+    def _scan_full(self, items: list[Any]) -> list[rules.Match]:
         combined_text = "\n".join(_item_text(i) for i in items)
-        return rules.scan(combined_text, guard="context") if combined_text else []
+        return rules.scan(combined_text, guard="context", extended=self._extended) if combined_text else []
 
-    @staticmethod
-    def _scan_fast(items: list[Any]) -> list[rules.Match]:
+    def _scan_fast(self, items: list[Any]) -> list[rules.Match]:
         """Gated scan: same matches as the full scan, fewer regex runs."""
         combined_text = "\n".join(_item_text(i) for i in items)
-        return rules.scan(combined_text, guard="context", gated=True) if combined_text else []
+        if not combined_text:
+            return []
+        return rules.scan(combined_text, guard="context", gated=True, extended=self._extended)
