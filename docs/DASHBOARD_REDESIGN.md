@@ -21,7 +21,7 @@
 - **UI/UX Pro Max**: 공식 repo `72e5fc76a4f3eb37747dc472cb3091bd46e7752a`, `.claude/skills/ui-ux-pro-max`. design-system 검색의 Analytics Dashboard / Minimalism & Swiss Style과 한국어 typography 검색의 Korean Modern을 참고했다. `--variance 3 --motion 1 --density 7`을 실제 지원하는 검색기에 전달했다. 반환된 Enterprise Gateway marketing layout은 재검색에서도 연구 콘솔에 부적합해 적용/저장하지 않았다. Streamlit stack 전용 검색은 지원하지 않아 임의로 React 결과를 적용하지 않았다. 한국어 system font fallback, 16px 본문, 대비 4.5:1, 표 안 스크롤, semantic status, focus 및 reduced-motion 적용.
 - **web-design-guidelines**: vercel-labs/agent-skills `5a37a6329fbad3666c3207392a6a7c0110e92efb`, bundled `references/command.md`로 최종 검수. native 입력 label/keyboard, heading 계층, focus, 긴 ID 줄바꿈, 표 숫자, 이미지 alt, 조회 상태 URL 유지 점검.
 
-참고 글: https://best-onedevyjuns.tistory.com/147 은 확인했다. https://it-ability.tistory.com/231 은 일반/모바일 주소 모두 열리지 않아 확인했다고 주장하지 않는다. 실제 지침은 위 공식 저장소 SKILL.md를 사용했다.
+참고 글 두 편(https://best-onedevyjuns.tistory.com/147, https://it-ability.tistory.com/231)을 확인했다. 첫 번째 글의 웹 도구 접근은 실패했으나 직접 HTTP 요청으로 본문을 확인했다. 글의 소개만 따르지 않고 위 공식 저장소 SKILL.md와 실제 검색 도구를 사용했다. UI/UX Pro Max README의 Codex CLI `--ai codex` 설치 경로도 확인했으며, Codex skill-installer로 SKILL.md·data·scripts·references 전체를 전역 skill 디렉터리에 설치해 프로젝트 파일에 섞지 않았다.
 
 ## 디자인 시스템
 
@@ -70,7 +70,16 @@ uv run ruff check .
 git diff --check
 ```
 
-Playwright는 opt-in QA 도구로만 사용하며 pyproject.toml/uv.lock 및 앱 runtime 의존성은 변경하지 않았다. 설치된 Chrome을 사용한다. HTML에 표시하는 Tool/기록 문자열을 escape하는 테스트, unknown/0 구분, 실행 전/후 경계 보존, URL deep link와 기본 접힘 상태 테스트를 추가했다. 최종 전체 QA 수와 dev SHA는 PR/최종 보고에 기록한다.
+Playwright는 opt-in QA 도구로만 사용하며 pyproject.toml/uv.lock 및 앱 runtime 의존성은 변경하지 않았다. 설치된 Chrome을 사용한다. HTML에 표시하는 Tool/기록 문자열을 escape하는 테스트, unknown/0 구분, 실행 전/후 경계 보존, URL deep link와 기본 접힘 상태 테스트를 추가했다.
+
+## 전체 회귀 결과
+
+- 전체 pytest: **1,356 passed, 2 skipped (256.42s)**.
+- 실제 전체 실행 코드 commit: `7df82d6b3f67866cebe63602f5f63eab4e790066`. 이후 후속 변경은 이 QA 결과와 참고 글 확인 사실을 기록한 문서뿐이다.
+- 기존 skip 2건: `tests/integration/test_mcp_comparison_evidence.py:24`, 로컬 comparison Evidence 부재. 새 skip은 추가하지 않았다.
+- Ruff 및 `git diff --check` 통과.
+- `src`, `shared`, `examples`, `benchmarks`, `reports`, `demo/actual_results.py`, `pyproject.toml`, `uv.lock`은 기존 Freeze와 diff 0이다.
+- dev 병합 SHA는 최종 PR/보고에 기록하며 기존 `guardon-freeze-20261127`은 `4a569752a905666c1b52229edb52825b7a01b579` 그대로 유지한다.
 
 ## web-design-guidelines 검수
 
