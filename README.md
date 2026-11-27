@@ -4,6 +4,22 @@
 
 PluginManager 기반 Guard Plugin과 SecurityContext 기반 Cross-layer Coordination을 적용한 AI Agent 보안 미들웨어입니다.
 
+## Final integration · 2026-11-27
+
+```powershell
+uv sync --locked --group dev --group demo
+uv run streamlit run demo/final_dashboard.py
+```
+
+실제 Qwen3:8b–MCP의 **저장된 실행 결과**를 Overview → Actual Agent–MCP → A/B/C/D 비교 → 외부 Benchmark → Evidence/Replay 순서로 조회합니다. 기존 Workbench는 사이드바에서 별도로 열 수 있으며 Fixture/Mock 자료로 구분합니다. 공식 ASR/TSR/FPR은 N/A입니다.
+
+- [최종 구조와 결과](docs/FINAL_ARCHITECTURE_AND_RESULTS.md)
+- [최종 통합 QA / Freeze 상태](docs/FINAL_INTEGRATION_QA.md)
+- [한 번에 실행하는 시연 / 녹화 안내](docs/FINAL_DEMO_GUIDE.md)
+- [발표 수치와 근거](docs/FINAL_PRESENTATION_HANDOFF.md)
+
+아래의 기존 발표 기준 SHA와 완료 기록은 과거 결과입니다. 최종 코드 참조는 QA 문서의 Freeze tag를 사용합니다.
+
 ## Team
 
 | Member | Ownership |
