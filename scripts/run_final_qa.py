@@ -26,7 +26,7 @@ def main():
                               "Browser visual QA and MP4 recording were unavailable"]}
     for name, command in checks:
         print(f"Running {name} at {sha}", flush=True)
-        completed = subprocess.run(command, cwd=ROOT, capture_output=True, text=True,
+        completed = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=False,
                                    encoding="utf-8", errors="replace",
                                    env={**os.environ, "PYTHONIOENCODING": "utf-8"})
         (destination / f"{name}.txt").write_text(completed.stdout + completed.stderr, encoding="utf-8")
