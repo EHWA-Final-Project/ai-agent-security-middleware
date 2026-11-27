@@ -1,0 +1,193 @@
+{
+  "browser": {
+    "engine": "Chrome headless",
+    "version": "158.0.8127.37"
+  },
+  "screens": [
+    {
+      "view": "overview",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "screenshot": "overview-1920x1080.png",
+      "layout": {
+        "page_overflow": false,
+        "main_overflow": false,
+        "content_width": 1760,
+        "caption_color": "rgb(81, 97, 118)",
+        "caption_opacity": "1",
+        "flow_overflow": false
+      },
+      "page_errors": []
+    },
+    {
+      "view": "agent",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "screenshot": "agent-1920x1080.png",
+      "layout": {
+        "page_overflow": false,
+        "main_overflow": false,
+        "content_width": 1760,
+        "caption_color": "rgb(81, 97, 118)",
+        "caption_opacity": "1",
+        "flow_overflow": false
+      },
+      "page_errors": []
+    },
+    {
+      "view": "comparison",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "screenshot": "comparison-1920x1080.png",
+      "layout": {
+        "page_overflow": false,
+        "main_overflow": false,
+        "content_width": 1760,
+        "caption_color": "rgb(81, 97, 118)",
+        "caption_opacity": "1",
+        "flow_overflow": false
+      },
+      "page_errors": []
+    },
+    {
+      "view": "benchmark",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "screenshot": "benchmark-1920x1080.png",
+      "layout": {
+        "page_overflow": false,
+        "main_overflow": false,
+        "content_width": 1760,
+        "caption_color": "rgb(81, 97, 118)",
+        "caption_opacity": "1",
+        "flow_overflow": false
+      },
+      "page_errors": []
+    },
+    {
+      "view": "evidence",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "screenshot": "evidence-1920x1080.png",
+      "layout": {
+        "page_overflow": false,
+        "main_overflow": false,
+        "content_width": 1760,
+        "caption_color": "rgb(81, 97, 118)",
+        "caption_opacity": "1",
+        "flow_overflow": false
+      },
+      "page_errors": []
+    },
+    {
+      "view": "overview",
+      "viewport": [
+        1366,
+        768
+      ],
+      "screenshot": "overview-1366x768.png",
+      "layout": {
+        "page_overflow": false,
+        "main_overflow": false,
+        "content_width": 1366,
+        "caption_color": "rgb(81, 97, 118)",
+        "caption_opacity": "1",
+        "flow_overflow": false
+      },
+      "page_errors": []
+    },
+    {
+      "view": "agent",
+      "viewport": [
+        1366,
+        768
+      ],
+      "screenshot": "agent-1366x768.png",
+      "layout": {
+        "page_overflow": false,
+        "main_overflow": false,
+        "content_width": 1366,
+        "caption_color": "rgb(81, 97, 118)",
+        "caption_opacity": "1",
+        "flow_overflow": false
+      },
+      "page_errors": []
+    },
+    {
+      "view": "comparison",
+      "viewport": [
+        1366,
+        768
+      ],
+      "screenshot": "comparison-1366x768.png",
+      "layout": {
+        "page_overflow": false,
+        "main_overflow": false,
+        "content_width": 1366,
+        "caption_color": "rgb(81, 97, 118)",
+        "caption_opacity": "1",
+        "flow_overflow": false
+      },
+      "page_errors": []
+    },
+    {
+      "view": "benchmark",
+      "viewport": [
+        1366,
+        768
+      ],
+      "screenshot": "benchmark-1366x768.png",
+      "layout": {
+        "page_overflow": false,
+        "main_overflow": false,
+        "content_width": 1366,
+        "caption_color": "rgb(81, 97, 118)",
+        "caption_opacity": "1",
+        "flow_overflow": false
+      },
+      "page_errors": []
+    },
+    {
+      "view": "evidence",
+      "viewport": [
+        1366,
+        768
+      ],
+      "screenshot": "evidence-1366x768.png",
+      "layout": {
+        "page_overflow": false,
+        "main_overflow": false,
+        "content_width": 1366,
+        "caption_color": "rgb(81, 97, 118)",
+        "caption_opacity": "1",
+        "flow_overflow": false
+      },
+      "page_errors": []
+    }
+  ],
+  "interaction_checks": {
+    "keyboard_navigation": "passed",
+    "historical_pre_post_block": "passed",
+    "evidence_disclosure": "passed",
+    "five_original_graph_tabs": "passed",
+    "csv_export_matches_original": "passed",
+    "narrow_viewport_reduced_motion": "passed"
+  },
+  "text_contrast_ratios": {
+    "body": 13.4,
+    "secondary": 5.89,
+    "allow": 6.58,
+    "block": 6.06,
+    "warn": 6.09
+  }
+}
