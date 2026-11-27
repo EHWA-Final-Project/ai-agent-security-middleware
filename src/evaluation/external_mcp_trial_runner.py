@@ -27,6 +27,7 @@ from .mcp_trial_observation import (
     Scope,
     TrialSidecar,
 )
+from .runtime_identity import binding_issues, candidate_identity, evidence_identity
 
 
 class UnavailableConfiguration(ValueError):
@@ -158,7 +159,7 @@ class ExternalMCPTrialRunner:
         observation = BackendObservation.model_validate(observation.model_dump())
         self._validate_observation(observation, config, case, run_id, trace_id, policy)
         evidence_validated, issues = self._check_evidence(
-            observation, run_id, trace_id, case["scenario_id"], policy.version,
+            observation, run_id, trace_id, case["scenario_id"], policy.version, config.execution_scope,
         ) if config.execution_scope != "mapping_only" else (None, [])
         if config.execution_scope != "mapping_only" and (
             observation.run_status is None
@@ -239,7 +240,8 @@ class ExternalMCPTrialRunner:
                 if candidate.security_decision.policy_version != policy.version:
                     raise ValueError("SecurityDecision policy mismatch")
             for snapshot in snapshots:
-                if snapshot.run_id != run_id or snapshot.trace_id != trace_id:
+                expected = candidate_identity(obs, candidate.candidate_id, run_id, trace_id)
+                if (snapshot.run_id, snapshot.trace_id) != expected:
                     raise ValueError("Security snapshot identity mismatch")
         for call in obs.sdk_calls or []:
             if call.candidate_id is not None and call.candidate_id not in ids:
@@ -273,12 +275,12 @@ class ExternalMCPTrialRunner:
         ):
             raise ValueError("timeout/error requires stage and diagnostics")
 
-    def _check_evidence(self, obs, run_id, trace_id, scenario_id, policy_version):
+    def _check_evidence(self, obs, run_id, trace_id, scenario_id, policy_version, scope):
         refs = set(obs.evidence_refs or [])
         refs.update(obs.outcome_evidence_refs or [])
         refs.update(obs.model_response_refs or [])
         refs.update(obs.payload_exposure_refs or [])
-        issues = []
+        issues = binding_issues(obs, scope, run_id, trace_id, scenario_id, self.evidence_lookup)
         for candidate in obs.candidates:
             if not candidate.evidence_refs:
                 issues.append(f"candidate_evidence_missing:{candidate.candidate_id}")
@@ -300,14 +302,15 @@ class ExternalMCPTrialRunner:
                     if event is None or event.event_id != ref:
                         issues.append(f"evidence_missing:{ref}")
                         continue
-                    if event.run_id != run_id or event.trace_id != trace_id:
+                    expected_run, expected_trace = evidence_identity(obs, ref, run_id, trace_id)
+                    if event.run_id != expected_run or event.trace_id != expected_trace:
                         issues.append(f"evidence_identity_mismatch:{ref}")
                     if event.scenario_id not in (None, scenario_id):
                         issues.append(f"evidence_scenario_mismatch:{ref}")
                     payload = event.payload
                     if isinstance(payload, dict):
                         for key, expected in (
-                            ("run_id", run_id), ("trace_id", trace_id),
+                            ("run_id", expected_run), ("trace_id", expected_trace),
                             ("scenario_id", scenario_id), ("policy_version", policy_version),
                         ):
                             if key in payload and payload[key] != expected:

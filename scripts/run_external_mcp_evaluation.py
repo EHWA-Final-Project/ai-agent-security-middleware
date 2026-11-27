@@ -1,4 +1,4 @@
-"""Run external mapping or fixture validation; actual execution is unavailable."""
+"""Run external mapping, fixture replay, or a restricted single actual trial."""
 
 import sys
 from pathlib import Path

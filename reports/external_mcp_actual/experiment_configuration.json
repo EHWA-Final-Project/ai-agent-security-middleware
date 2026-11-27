@@ -1,0 +1,33 @@
+{
+  "execution_revision": "85bb698e8cf38e8dbbb0cfcdc2a189cf12954948+evaluation-sha256:a41337b74e0f3939cfda64c96947fafcfe7bbf9f7890c71b7a1dade60e1b40f0",
+  "configuration": {
+    "conditions": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "model": {
+      "max_tokens": 2048,
+      "max_tokens_param": "max_tokens",
+      "name": "qwen3:8b",
+      "request_timeout_seconds": 600.0,
+      "temperature": 0.0
+    },
+    "pi_t01": true,
+    "repeat": 0,
+    "seed": null,
+    "trial_timeout_seconds": 1800
+  },
+  "planned_attempts": 48,
+  "mapped_samples": 12,
+  "status_counts": {
+    "completed": 41,
+    "error": 2,
+    "timeout": 5
+  },
+  "evidence_validated": 46,
+  "source_report_name": "sprint3-primary-pit01-on-t600-20261127-013842-consolidated-20261127-065839-549930",
+  "supplemental_report_name": "sprint3-primary-pit01-on-t600-20261127-013842-supplemental-20261127-094713-251188",
+  "audit_helper_sha256": "f98c87df9a5fbe6b9018afd134992c171c602a483eb0e3ca21b59217c355f2ae"
+}

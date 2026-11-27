@@ -49,6 +49,19 @@ class SDKCall(UnknownObservation):
     evidence_ref: Identifier | None = None
 
 
+class RuntimeIdentityBinding(ObservationModel):
+    """Evaluation attestation linking a candidate to original Runtime Evidence."""
+
+    trial_run_id: Identifier
+    trial_trace_id: Identifier
+    scenario_id: Identifier
+    candidate_id: Identifier
+    runtime_run_id: Identifier
+    runtime_trace_id: Identifier
+    runtime_evidence_refs: list[Identifier]
+    link_evidence_ref: Identifier
+
+
 class CandidateObservation(UnknownObservation):
     candidate_id: Identifier
     timestamp: datetime
@@ -56,6 +69,12 @@ class CandidateObservation(UnknownObservation):
     parent_mcp_call_id: Identifier | None = None
     server_name: Identifier | None = None
     tool_name: Identifier | None = None
+    # Runtime exposes counts and call identities but no per-invocation timestamps.
+    timestamp_scope: Literal["candidate_observation", "evaluation_ingestion"] = "candidate_observation"
+    model_tool_call_id: Identifier | None = None
+    parent_candidate_id: Identifier | None = None
+    sdk_call_count: Count | None = None
+    server_tool_body_counts: dict[str, Count] | None = None
     candidate_source: Literal["model", "fixture"] | None = None
     model_selected_tool: ToolAction | None = None
     requested_tool: ToolAction | None = None
@@ -148,6 +167,8 @@ class BackendObservation(UnknownObservation):
     guard_trace_complete: bool | None = None
     payload_exposure_refs: list[Identifier] | None = None
     semantic_outcomes: SemanticOutcomes | None = None
+    runtime_bindings: list[RuntimeIdentityBinding] = Field(default_factory=list)
+    runtime_model_names: list[str | None] | None = None
 
 
 class TrialSidecar(UnknownObservation):

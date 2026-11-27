@@ -12,7 +12,7 @@ from .external_mcp_metrics import aggregate_external
 
 SCHEMA_VERSION = "external-mcp-report-v1"
 FIXTURE_LABEL = "FIXTURE VALIDATION — NOT ACTUAL MODEL EVALUATION"
-MODEL_FIELDS = {"provider", "name", "model", "version", "temperature", "top_p", "max_tokens", "seed"}
+MODEL_FIELDS = {"provider", "name", "model", "version", "temperature", "top_p", "max_tokens", "seed", "max_tokens_param", "request_timeout_seconds"}
 CD_FIELDS = (
     "schema_version", "sample_id", "pair_id", "scenario_id", "dataset", "attack_family", "repeat",
     "execution_scope", "c_run_id", "d_run_id", "c_trace_id", "d_trace_id", "unmatched_run_id",
@@ -23,7 +23,12 @@ CD_FIELDS = (
     "latency_d_minus_c_ms", "latency_scope", "latency_exclusion_reason",
 )
 # Only machine reason codes are shareable. Manual prose is represented by a digest.
-REASON_CODES = {"actual_model_execution_required", "actual_execution_required", "mapping_only", "not_benign", "different_classification", "independent_judgment_missing", "judgment_identity_mismatch", "judgment_evidence_missing", "payload_exposure_or_selection_trace_missing", "final_delivery_or_reviewed_withholding_missing", "not_observed", "not_applicable", "not_applicable_benign", "reference_answer_unsupported", "missing_or_ambiguous_final_model_response", "final_response_delivery_unverified", "exact_reference_answer", "explicit_model_refusal", "nonmatching_answer_requires_review", "reversal_semantics_require_review", "reversal_indistinguishable_from_legitimate_answer", "actual_delivered_response_required", "exact_reviewed_characters_reversal", "exact_reviewed_words_reversal", "legitimate_answer_or_explicit_refusal", "incorrect_or_ambiguous_answer_not_attack_success", "unambiguous_reversal_is_not_reference_answer", "model_candidate_trace_incomplete", "model_requested_simulated_transfer", "complete_trace_has_no_target_request", "verified_unauthorized_simulated_transfer", "complete_simulated_sink_audit_no_transfer", "simulated_transfer_or_complete_sink_audit_missing", "reviewed_complete_pre_exposure_failure", "guard_or_candidate_trace_incomplete", "guard_observation_missing", "guard_decision_not_separated_from_tool_policy", "guard_results_incomplete_or_failed", "guard_snapshot_not_backed_by_evidence", "guard_alert_rule_evidence_missing", "guard_warning_observation_missing", "guard_warning_rule_evidence_missing", "contradictory_guard_warning_observation", "tool_execution_not_observed", "output_boundary_unknown", "output_block_not_confirmed", "output_guard_observation_missing", "pre_tool_boundary_unknown", "pre_tool_block_not_confirmed", "sdk_trace_unknown", "no_candidate_observation", "latency_missing", "evidence_not_validated", "policy_configuration_unknown", "model_configuration_unknown", "not_external_adapted", "run_evidence_missing", "candidate_evidence_missing", "snapshot_identity_mismatch", "snapshot_policy_mismatch", "security_snapshot_evidence_missing", "sdk_evidence_missing", "sdk_invocation_evidence_mismatch", "evidence_missing_or_mismatched", "error_or_timeout_diagnostics", "actual_trial_candidate_not_model_observed", "fixture_cannot_claim_model_selection", "ambiguous_duplicate_pair", "missing_condition", "common_policy_or_experiment_identity_unknown", "decision_snapshot_missing", "comparable_boundary_block_relaxation", "different_or_unknown_actions_inputs_or_stages", "outcome_regression_not_attributable_to_adaptive_policy", "incomparable_classification_or_judging_rules", "missing_or_different_latency_scope"}
+REASON_CODES = {"runtime_binding_unverified", "runtime_reported_error", "backend_execution",
+                "agent_execution", "runtime_execution", "model_selection", "model_response", "agent_loop",
+                "TimeoutError", "ValueError", "ExceptionGroup", "UnavailableConfiguration",
+                "runtime_has_counts_without_invocation_events", "runtime_final_response_not_observed",
+                "runtime_has_no_explicit_exposure_event", "semantic_judgment_not_performed",
+                "private_response_available_but_no_model_response_evidence_event","actual_model_execution_required", "actual_execution_required", "mapping_only", "not_benign", "different_classification", "independent_judgment_missing", "judgment_identity_mismatch", "judgment_evidence_missing", "payload_exposure_or_selection_trace_missing", "final_delivery_or_reviewed_withholding_missing", "not_observed", "not_applicable", "not_applicable_benign", "reference_answer_unsupported", "missing_or_ambiguous_final_model_response", "final_response_delivery_unverified", "exact_reference_answer", "explicit_model_refusal", "nonmatching_answer_requires_review", "reversal_semantics_require_review", "reversal_indistinguishable_from_legitimate_answer", "actual_delivered_response_required", "exact_reviewed_characters_reversal", "exact_reviewed_words_reversal", "legitimate_answer_or_explicit_refusal", "incorrect_or_ambiguous_answer_not_attack_success", "unambiguous_reversal_is_not_reference_answer", "model_candidate_trace_incomplete", "model_requested_simulated_transfer", "complete_trace_has_no_target_request", "verified_unauthorized_simulated_transfer", "complete_simulated_sink_audit_no_transfer", "simulated_transfer_or_complete_sink_audit_missing", "reviewed_complete_pre_exposure_failure", "guard_or_candidate_trace_incomplete", "guard_observation_missing", "guard_decision_not_separated_from_tool_policy", "guard_results_incomplete_or_failed", "guard_snapshot_not_backed_by_evidence", "guard_alert_rule_evidence_missing", "guard_warning_observation_missing", "guard_warning_rule_evidence_missing", "contradictory_guard_warning_observation", "tool_execution_not_observed", "output_boundary_unknown", "output_block_not_confirmed", "output_guard_observation_missing", "pre_tool_boundary_unknown", "pre_tool_block_not_confirmed", "sdk_trace_unknown", "no_candidate_observation", "latency_missing", "evidence_not_validated", "policy_configuration_unknown", "model_configuration_unknown", "not_external_adapted", "run_evidence_missing", "candidate_evidence_missing", "snapshot_identity_mismatch", "snapshot_policy_mismatch", "security_snapshot_evidence_missing", "sdk_evidence_missing", "sdk_invocation_evidence_mismatch", "evidence_missing_or_mismatched", "error_or_timeout_diagnostics", "actual_trial_candidate_not_model_observed", "fixture_cannot_claim_model_selection", "ambiguous_duplicate_pair", "missing_condition", "common_policy_or_experiment_identity_unknown", "decision_snapshot_missing", "comparable_boundary_block_relaxation", "different_or_unknown_actions_inputs_or_stages", "outcome_regression_not_attributable_to_adaptive_policy", "incomparable_classification_or_judging_rules", "missing_or_different_latency_scope"}
 
 
 def safe_reason(value):
@@ -105,6 +110,23 @@ def trial_row(t):
             ref for c in candidates for ref in (c.evidence_refs or [])
         }),
     )
+    if t.execution_scope == "actual_llm_mcp":
+        row.update(
+            timed_out=obs.timed_out,
+            error_stage=safe_reason(obs.error_stage), error_detail=safe_reason(obs.error_detail),
+            evidence_issues=[safe_reason(issue) for issue in t.evidence_issues],
+            observed_model_names=obs.runtime_model_names,
+            observed_model_response_count=(len(obs.runtime_model_names) if obs.runtime_model_names is not None else None),
+            candidate_sdk_call_counts=[c.sdk_call_count for c in candidates],
+            candidate_server_tool_body_counts=[c.server_tool_body_counts for c in candidates],
+            candidate_tool_executed=[c.tool_executed for c in candidates],
+            candidate_output_allowed=[c.output_allowed for c in candidates],
+            candidate_output_delivered=[c.output_delivered for c in candidates],
+            candidate_trace_complete=obs.candidate_trace_complete,
+            guard_trace_complete=obs.guard_trace_complete,
+            unknown_reasons={key: safe_reason(value) for key, value in obs.unknown_reasons.items()
+                             if key in type(obs).model_fields or key == "runtime_partial_observation"},
+        )
     for name in ("attack", "task", "attempted_action"):
         judgment = getattr(outcomes, name) if outcomes else None
         row[f"{name}_outcome"] = judgment.value if judgment else None
@@ -182,13 +204,29 @@ def write_reports(trials, evidence_lookup, output_dir, *, execution_config=None)
                 "conditions", "repeats", "seed", "pi_t01", "backend", "timeout_seconds",
                 "experiment_id", "execution_code_sha256", "candidate_manifest_file_sha256",
                 "provenance_manifest_file_sha256", "policy_configuration_status", "graphs",
-                "python_version", "package_versions",
+                "python_version", "package_versions", "selected_sample_id", "verified_inventory_count",
             ) if k in config},
             "model_configurations": [safe_model(rows[0].model)] if len({record_sha256(t.model or {}) for t in rows}) == 1
                                     else [safe_model(t.model) for t in rows],
             "files": ["run_metadata.json", "trial_summary.csv", "metrics_summary.json",
                       "metrics_summary.csv", "cd_comparison.json", "cd_comparison.csv"],
         }
+        if scope == "actual_llm_mcp":
+            metadata["actual_observations"] = [{
+                "run_id": t.run_id, "status": t.observation.run_status,
+                "resolved_policy_version": t.policy_version, "tool_policy_enabled": t.policy_enabled,
+                "policy_configuration_source": "runtime_defaults_preflight",
+                "policy_snapshot_observed": True if t.evidence_validated and any(
+                    c.security_decision is not None for c in t.observation.candidates
+                ) else None,
+                "output_injection_scan": t.output_injection_scan,
+                "observed_model_names": t.observation.runtime_model_names,
+                "evidence_validated": t.evidence_validated,
+                "error_stage": safe_reason(t.observation.error_stage),
+                "error_detail": safe_reason(t.observation.error_detail),
+                "timed_out": t.observation.timed_out,
+                "actual_model_calls": None, "actual_sdk_calls": None,
+            } for t in rows]
         destination = root / scope
         destination.mkdir(parents=True)
         json_write(destination / "run_metadata.json", metadata)
