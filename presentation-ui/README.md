@@ -26,6 +26,8 @@ npm run preview
 
 일반 실행에는 Python이나 API 키가 필요하지 않다. 공개 데이터가 이미 포함되어 있다. 개발 중에는 `npm.cmd run dev`를 사용한다. 5173이 이미 사용 중이면 기존 서버를 확인하거나 `npm.cmd run preview -- --port 5174`로 다른 포트를 선택한다.
 
+Windows에서 `npm.cmd ci`로 재설치하기 전에는 이 디렉터리에서 실행 중인 dev/preview 서버를 해당 터미널의 Ctrl+C로 종료한다. Vite가 사용 중인 네이티브 모듈은 Windows에서 삭제할 수 없어 `EPERM unlink`가 발생할 수 있다. 설치 실패 뒤 `tsc`/`vite`를 찾지 못하면 설치가 끝나지 않은 상태이므로, 서버를 종료하고 `npm.cmd ci`를 다시 성공시킨 뒤 빌드한다. 평소 재실행은 재설치 없이 `npm.cmd run preview`만 사용한다. Git Bash에서 설치부터 연속 실행하려면 실패 시 다음 단계가 실행되지 않도록 `npm.cmd ci && npm.cmd run build && npm.cmd run preview`로 연결한다.
+
 ## 실제 브라우저 QA
 
 저장소 루트에서 `uv sync --locked --group dev --group demo` 후 이 디렉터리에서 실행한다. 기본적으로 로컬 Chrome이 필요하며, 별도 개인 프로필을 사용하지 않는다. Preview 서버는 별도 터미널에서 켜 둔다.
