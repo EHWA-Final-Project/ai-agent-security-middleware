@@ -30,6 +30,11 @@ class PolicyConfig(BaseModel):
     #: Output Guard also scans executed tool output for injected instructions
     #: (PI-T01). Off by default so existing A/B/C results stay reproducible.
     output_injection_scan: bool = False
+    #: Extra injection rules for untrusted content (tool output, tool descriptions,
+    #: documents): imperative text about the assistant's own answer, content posing
+    #: as the user, "do not tell the user", a question or order under a table.
+    #: Off by default, so existing A/B/C/D results stay reproducible.
+    extended_injection_rules: bool = False
 
     def weight_for(self, guard_name: str) -> float:
         """P0: all guard weights default to 1.0 unless overridden in config."""

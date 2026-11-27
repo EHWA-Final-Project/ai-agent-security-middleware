@@ -103,7 +103,7 @@ def _allow_result(
 
 
 def _injection_findings(
-    text: str | None, *, gated: bool = False
+    text: str | None, *, gated: bool = False, extended: bool = False
 ) -> tuple[float, list[injection_rules.Match]]:
     """Injection score (0.0 if below the warn level) and matches for ``text``.
 
@@ -113,9 +113,9 @@ def _injection_findings(
     if not text:
         return 0.0, []
     try:
-        matches = injection_rules.scan(text, guard="context", gated=gated)
+        matches = injection_rules.scan(text, guard="context", gated=gated, extended=extended)
     except Exception:  # noqa: BLE001 — adaptive path must never weaken inspection
-        matches = injection_rules.scan(text, guard="context")
+        matches = injection_rules.scan(text, guard="context", extended=extended)
     risk = injection_rules.score(matches, **_INJECTION_TIER_SCORES)
     return (risk, matches) if risk >= injection_rules.WARN_SCORE else (0.0, matches)
 
@@ -136,8 +136,9 @@ class OutputGuard(GuardPlugin):
     name = "output_guard"
     stage = Stage.OUTPUT
 
-    def __init__(self, *, scan_injection: bool = False) -> None:
+    def __init__(self, *, scan_injection: bool = False, extended_rules: bool = False) -> None:
         self._scan_injection = scan_injection
+        self._extended = extended_rules
 
     def inspect(self, observation: RuntimeObservation, context: SecurityContext) -> SecurityResult:
         start = time.perf_counter()
@@ -164,7 +165,9 @@ class OutputGuard(GuardPlugin):
                 matched_by_source["context_items"] = hits
 
         injection_risk, injection_matches = (
-            _injection_findings(tool_text, gated=context.inspection_mode == InspectionMode.FAST)
+            _injection_findings(
+                tool_text, gated=context.inspection_mode == InspectionMode.FAST, extended=self._extended
+            )
             if self._scan_injection
             else (0.0, [])
         )
@@ -251,7 +254,7 @@ class OutputGuard(GuardPlugin):
         # Redaction cannot remove an injected instruction: if the (redacted)
         # tool output still carries one, the recheck must still warn.
         injection_risk, injection_matches = (
-            _injection_findings(sanitized_tool_output) if self._scan_injection else (0.0, [])
+            _injection_findings(sanitized_tool_output, extended=self._extended) if self._scan_injection else (0.0, [])
         )
 
         latency_ms = (time.perf_counter() - start) * 1000
