@@ -47,9 +47,7 @@ jobs:
 
       - name: Build GitHub Pages site
         working-directory: presentation-ui
-        env:
-          GITHUB_PAGES: 'true'
-        run: npm run build
+        run: npm run build -- --mode pages
 
       - name: Verify artifact contents
         working-directory: presentation-ui
