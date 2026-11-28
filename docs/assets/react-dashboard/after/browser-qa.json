@@ -1,0 +1,170 @@
+{
+  "mode": "recorded",
+  "screens": [
+    {
+      "view": "overview",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "screenshot": "overview-1920x1080.png",
+      "geometry": {
+        "pageOverflow": false,
+        "mainOverflow": false,
+        "sidebarWidth": 232,
+        "headingSize": "27px"
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "agent",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "screenshot": "agent-1920x1080.png",
+      "geometry": {
+        "pageOverflow": false,
+        "mainOverflow": false,
+        "sidebarWidth": 232,
+        "headingSize": "27px"
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "comparison",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "screenshot": "comparison-1920x1080.png",
+      "geometry": {
+        "pageOverflow": false,
+        "mainOverflow": false,
+        "sidebarWidth": 232,
+        "headingSize": "27px"
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "benchmark",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "screenshot": "benchmark-1920x1080.png",
+      "geometry": {
+        "pageOverflow": false,
+        "mainOverflow": false,
+        "sidebarWidth": 232,
+        "headingSize": "27px"
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "evidence",
+      "viewport": [
+        1920,
+        1080
+      ],
+      "screenshot": "evidence-1920x1080.png",
+      "geometry": {
+        "pageOverflow": false,
+        "mainOverflow": false,
+        "sidebarWidth": 232,
+        "headingSize": "27px"
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "overview",
+      "viewport": [
+        1366,
+        768
+      ],
+      "screenshot": "overview-1366x768.png",
+      "geometry": {
+        "pageOverflow": false,
+        "mainOverflow": false,
+        "sidebarWidth": 232,
+        "headingSize": "27px"
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "agent",
+      "viewport": [
+        1366,
+        768
+      ],
+      "screenshot": "agent-1366x768.png",
+      "geometry": {
+        "pageOverflow": false,
+        "mainOverflow": false,
+        "sidebarWidth": 232,
+        "headingSize": "27px"
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "comparison",
+      "viewport": [
+        1366,
+        768
+      ],
+      "screenshot": "comparison-1366x768.png",
+      "geometry": {
+        "pageOverflow": false,
+        "mainOverflow": false,
+        "sidebarWidth": 232,
+        "headingSize": "27px"
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "benchmark",
+      "viewport": [
+        1366,
+        768
+      ],
+      "screenshot": "benchmark-1366x768.png",
+      "geometry": {
+        "pageOverflow": false,
+        "mainOverflow": false,
+        "sidebarWidth": 232,
+        "headingSize": "27px"
+      },
+      "pageErrors": []
+    },
+    {
+      "view": "evidence",
+      "viewport": [
+        1366,
+        768
+      ],
+      "screenshot": "evidence-1366x768.png",
+      "geometry": {
+        "pageOverflow": false,
+        "mainOverflow": false,
+        "sidebarWidth": 232,
+        "headingSize": "27px"
+      },
+      "pageErrors": []
+    }
+  ],
+  "checks": {
+    "historical_pre_post_boundary": "passed",
+    "candidate_panel_copy_escape_focus": "passed",
+    "search_filter_empty_and_reload": "passed",
+    "metric_scope_and_condition_preserved": "passed",
+    "five_original_graphs_and_csv_bytes": "passed",
+    "matched_sample_matrix_and_evidence": "passed",
+    "mobile_navigation_reduced_motion": "passed",
+    "real_load_error_state": "passed",
+    "source_files_unchanged": "passed"
+  },
+  "browser": {
+    "name": "Chrome headless",
+    "version": "158.0.8127.37"
+  }
+}

@@ -4,6 +4,19 @@
 
 PluginManager 기반 Guard Plugin과 SecurityContext 기반 Cross-layer Coordination을 적용한 AI Agent 보안 미들웨어입니다.
 
+## React 발표용 Dashboard · 2026-11-28
+
+별도 React + TypeScript + Vite 분석 화면에서 실제 공개 기록을 조회합니다. 고정 사이드바, 실행 목록과 Candidate Trace, A/B/C/D 매트릭스, 원본 그래프, 검색·필터와 우측 Evidence 패널을 제공합니다. 기존 Streamlit과 Python 코드는 그대로 보존합니다.
+
+```powershell
+cd presentation-ui
+npm.cmd ci
+npm.cmd run build
+npm.cmd run preview
+```
+
+**실행 주소: http://127.0.0.1:5173** (Recorded / Replay). 기존 8501·8502·8503 Streamlit 화면과 별개입니다. [설치·실행 안내](presentation-ui/README.md), [설계·스킬 적용·QA 기록](docs/REACT_DASHBOARD_HANDOFF.md), [화면별 Before / After](docs/assets/react-dashboard/README.md)를 확인하세요.
+
 ## Final integration · 2026-11-27
 
 Freeze 이후 Dashboard UI를 Academic Security Research Console로 개선했습니다. 정책·데이터·평가 계산과 기존 `guardon-freeze-20261127` tag는 유지합니다. [디자인·브라우저 검증 기록](docs/DASHBOARD_REDESIGN.md), [Before / After 캡처](docs/assets/dashboard-redesign/README.md)를 확인하세요.

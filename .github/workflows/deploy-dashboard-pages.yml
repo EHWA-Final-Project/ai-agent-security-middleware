@@ -1,0 +1,85 @@
+name: Deploy GuardOn Dashboard to GitHub Pages
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "presentation-ui/**"
+      - ".github/workflows/deploy-dashboard-pages.yml"
+      - "reports/external_mcp_actual/**"
+      - "reports/runtime_demo/public_observations.json"
+      - "benchmarks/mcp_external_manifest.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-guardon-dashboard
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Verify and build public dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: presentation-ui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: presentation-ui
+        run: npm ci
+
+      - name: Validate UI and source data
+        working-directory: presentation-ui
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Build GitHub Pages site
+        working-directory: presentation-ui
+        env:
+          GITHUB_PAGES: 'true'
+        run: npm run build
+
+      - name: Verify artifact contents
+        working-directory: presentation-ui
+        run: |
+          test -s dist/index.html
+          test -s dist/data/guardon.json
+          test -s dist/data/trial_observations.csv
+          test -s dist/graphs/execution_status.png
+          grep -q '/ai-agent-security-middleware/assets/' dist/index.html
+          if grep -RIlE '(sk-[A-Za-z0-9]{24,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})' dist; then
+            echo "Potential token-like text in published assets; inspect before deploying"
+            exit 1
+          fi
+
+      - name: Set up GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: presentation-ui/dist
+
+  deploy:
+    name: Publish static dashboard
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
