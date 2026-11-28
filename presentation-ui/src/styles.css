@@ -31,3 +31,9 @@
 .legend-bad,.fill-bad{background:#b94e58;fill:#b94e58}.bar-dark{fill:#614215}
 @media(min-width:851px){.kpi-strip{padding-top:16px;padding-bottom:14px;margin-bottom:21px}.outcome-chart svg{max-height:200px}.overview-grid.lower{padding-top:20px}.section-heading{margin-bottom:14px}}
 @media(max-width:640px){.search input,.select-control select{font-size:16px}.button,.icon-button{min-height:44px}.icon-button{min-width:44px}.sidebar nav a{min-height:54px}}
+/* Branding only: flat mark and quiet project attribution. */
+.brand-mark{flex-shrink:0;object-fit:contain}.sidebar{overflow-y:auto}.sidebar>.brand,.sidebar>.workspace,.sidebar>nav,.sidebar>.sidebar-footer{flex-shrink:0}
+.project-credit{margin-top:16px;padding:16px 6px 0;border-top:1px solid var(--line);color:var(--muted);letter-spacing:0}
+.project-university{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:600;color:var(--ink)}.project-university img{object-fit:contain;flex-shrink:0}
+.project-team{display:block;margin-top:10px;font-size:11px;font-weight:600}.project-members{display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:4px;font-size:11px;line-height:1.65}.project-members>span{white-space:nowrap}
+@media(max-height:760px){.project-credit{margin-top:10px;padding-top:10px}.sidebar-footer{padding-top:10px;padding-bottom:12px}.project-team{margin-top:6px}}
