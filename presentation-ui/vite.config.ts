@@ -1,11 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// GitHub Pages serves project sites from /<repository>/, while local preview stays at /.
-const isPagesBuild = process.env.GITHUB_PAGES === 'true'
-
-export default defineConfig({
+// GitHub Pages project URLs require a subpath; localhost uses the root path.
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
-  base: isPagesBuild ? '/ai-agent-security-middleware/' : '/',
+  base: mode === 'pages' ? '/ai-agent-security-middleware/' : '/',
   server: { host: '127.0.0.1', port: 5173, strictPort: true },
-})
+}))
